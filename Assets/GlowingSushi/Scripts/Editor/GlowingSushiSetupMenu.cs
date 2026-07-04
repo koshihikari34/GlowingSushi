@@ -25,7 +25,7 @@ namespace GlowingSushi.Editor
         const string MaterialPath = "Assets/GlowingSushi/Materials/SushiEmissive.mat";
         const string PrefabPath = "Assets/GlowingSushi/Prefabs/Sushi.prefab";
         const string SettingsPath = "Assets/GlowingSushi/Settings/SushiBehaviorSettings.asset";
-        const string ScenePath = "Assets/GlowingSushi/Scenes/SampleScene.unity";
+        const string ScenePath = "Assets/GlowingSushi/Scenes/Main.unity";
         const string MobileRendererPath = "Assets/Settings/Mobile_Renderer.asset";
         const string PcRendererPath = "Assets/Settings/PC_Renderer.asset";
 
