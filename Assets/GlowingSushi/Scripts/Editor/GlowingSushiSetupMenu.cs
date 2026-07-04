@@ -23,8 +23,15 @@ namespace GlowingSushi.Editor
         const string ColorTexPath = "Assets/GlowingSushi/Models/J-food04/sushi02_color.jpg";
         const string NormalTexPath = "Assets/GlowingSushi/Models/J-food04/sushi02_nor.jpg";
         const string MaterialPath = "Assets/GlowingSushi/Materials/SushiEmissive.mat";
-        const string PrefabPath = "Assets/GlowingSushi/Prefabs/Sushi.prefab";
+        const string PrefabFolder = "Assets/GlowingSushi/Prefabs";
+        const string ObsoletePrefabPath = "Assets/GlowingSushi/Prefabs/Sushi.prefab";
         const string SettingsPath = "Assets/GlowingSushi/Settings/SushiBehaviorSettings.asset";
+
+        /// <summary>
+        /// sushi02モデル(盛り合わせ)から個別プレハブ化する寿司のノード名。
+        /// ガリ(gari)は寿司ではないため除外する。
+        /// </summary>
+        static readonly string[] SushiPieceNames = { "maguro", "Salmon_", "ebi1", "ebi2", "negitoro", "engawa" };
         const string ScenePath = "Assets/GlowingSushi/Scenes/Main.unity";
         const string MobileRendererPath = "Assets/Settings/Mobile_Renderer.asset";
         const string PcRendererPath = "Assets/Settings/PC_Renderer.asset";
@@ -44,7 +51,7 @@ namespace GlowingSushi.Editor
 
             EnsureNormalMapImport();
             var material = CreateEmissiveMaterial();
-            CreateSushiPrefab(material);
+            CreateSushiPiecePrefabs(material);
             CreateBehaviorSettings();
 
             AssetDatabase.SaveAssets();
@@ -88,11 +95,12 @@ namespace GlowingSushi.Editor
             return material;
         }
 
-        /// <summary>sushi02モデルからSushiView付きプレハブを生成する</summary>
-        static void CreateSushiPrefab(Material material)
+        /// <summary>
+        /// 盛り合わせモデルから寿司1貫ごとの個別プレハブを生成する。
+        /// 各プレハブは対象のメッシュのみを持ち、中心を原点に合わせて泳ぐ向きの回転に耐える形にする。
+        /// </summary>
+        static void CreateSushiPiecePrefabs(Material material)
         {
-            if (AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath) != null) return;
-
             var modelPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(FbxPath);
             if (modelPrefab == null)
             {
@@ -100,26 +108,68 @@ namespace GlowingSushi.Editor
                 return;
             }
 
-            var root = new GameObject("Sushi");
+            // 盛り合わせ丸ごとの旧プレハブが残っていれば削除する
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(ObsoletePrefabPath) != null)
+            {
+                AssetDatabase.DeleteAsset(ObsoletePrefabPath);
+            }
+
+            foreach (var pieceName in SushiPieceNames)
+            {
+                var prefabPath = $"{PrefabFolder}/Sushi_{pieceName.TrimEnd('_')}.prefab";
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null) continue;
+                CreateSinglePiecePrefab(modelPrefab, pieceName, prefabPath, material);
+            }
+        }
+
+        /// <summary>指定した名前のノードだけを取り出した1貫分のプレハブを生成する</summary>
+        static void CreateSinglePiecePrefab(GameObject modelPrefab, string pieceName, string prefabPath, Material material)
+        {
+            var root = new GameObject($"Sushi_{pieceName.TrimEnd('_')}");
             try
             {
                 var modelInstance = (GameObject)PrefabUtility.InstantiatePrefab(modelPrefab);
-                modelInstance.transform.SetParent(root.transform, false);
+                // 子の組み替え・削除を行うため、プレハブ接続を完全に解除する
+                PrefabUtility.UnpackPrefabInstance(modelInstance, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
 
-                var renderer = modelInstance.GetComponentInChildren<Renderer>();
-                if (renderer == null)
+                Transform piece = null;
+                foreach (var child in modelInstance.GetComponentsInChildren<Transform>())
                 {
-                    Debug.LogError("[GlowingSushi] モデルにRendererが見つかりません");
+                    if (child.name == pieceName)
+                    {
+                        piece = child;
+                        break;
+                    }
+                }
+                if (piece == null)
+                {
+                    Debug.LogError($"[GlowingSushi] モデル内にノード '{pieceName}' が見つかりません");
+                    Object.DestroyImmediate(modelInstance);
                     return;
                 }
 
-                // モデルの最長辺がTargetModelSizeになるようスケールを調整する
+                var renderer = piece.GetComponentInChildren<Renderer>();
+                if (renderer == null)
+                {
+                    Debug.LogError($"[GlowingSushi] ノード '{pieceName}' にRendererがありません");
+                    Object.DestroyImmediate(modelInstance);
+                    return;
+                }
+
+                // 対象の1貫だけをルート直下へ移し、残り(他の寿司・ガリ)は破棄する
+                piece.SetParent(root.transform, true);
+                Object.DestroyImmediate(modelInstance);
+
+                // 最長辺がTargetModelSizeになるようスケール調整
                 var size = renderer.bounds.size;
                 var maxDimension = Mathf.Max(size.x, Mathf.Max(size.y, size.z));
                 if (maxDimension > 1e-5f)
                 {
-                    modelInstance.transform.localScale = Vector3.one * (TargetModelSize / maxDimension);
+                    piece.localScale *= TargetModelSize / maxDimension;
                 }
+
+                // メッシュの中心をルート原点へ合わせる(回転時にその場で回るように)
+                piece.position -= renderer.bounds.center;
 
                 // 全マテリアルスロットを発光マテリアルへ差し替える
                 var materials = renderer.sharedMaterials;
@@ -134,7 +184,7 @@ namespace GlowingSushi.Editor
                 so.FindProperty("bodyRenderer").objectReferenceValue = renderer;
                 so.ApplyModifiedPropertiesWithoutUndo();
 
-                PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
+                PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
             }
             finally
             {
@@ -156,13 +206,13 @@ namespace GlowingSushi.Editor
         [MenuItem("GlowingSushi/Setup/2. シーンセットアップ")]
         public static void SetupScene()
         {
-            var prefab = AssetDatabase.LoadAssetAtPath<SushiView>(PrefabPath);
+            var prefabs = LoadSushiPiecePrefabs();
             var settings = AssetDatabase.LoadAssetAtPath<SushiBehaviorSettings>(SettingsPath);
-            if (prefab == null || settings == null)
+            if (prefabs.Length == 0 || settings == null)
             {
                 EditorUtility.DisplayDialog(
                     "GlowingSushi",
-                    "プレハブまたは設定アセットが見つかりません。先に「1. アセット生成」を実行してください。",
+                    "寿司プレハブまたは設定アセットが見つかりません。先に「1. アセット生成」を実行してください。",
                     "OK");
                 return;
             }
@@ -223,7 +273,12 @@ namespace GlowingSushi.Editor
                 schoolView = new GameObject("SushiSchoolView").AddComponent<SushiSchoolView>();
             }
             var schoolSo = new SerializedObject(schoolView);
-            schoolSo.FindProperty("sushiPrefab").objectReferenceValue = prefab;
+            var prefabsProp = schoolSo.FindProperty("sushiPrefabs");
+            prefabsProp.arraySize = prefabs.Length;
+            for (var i = 0; i < prefabs.Length; i++)
+            {
+                prefabsProp.GetArrayElementAtIndex(i).objectReferenceValue = prefabs[i];
+            }
             schoolSo.ApplyModifiedPropertiesWithoutUndo();
 
             // --- DIスコープ ---
@@ -233,14 +288,29 @@ namespace GlowingSushi.Editor
                 scope = new GameObject("GlowingSushiLifetimeScope").AddComponent<GlowingSushiLifetimeScope>();
             }
             var scopeSo = new SerializedObject(scope);
-            scopeSo.FindProperty("behaviorSettings").objectReferenceValue = settings;
+            // 手動で結線済みの参照を誤って外さないよう、未設定の場合のみ書き込む
+            var settingsProp = scopeSo.FindProperty("behaviorSettings");
+            if (settingsProp.objectReferenceValue == null)
+            {
+                settingsProp.objectReferenceValue = settings;
+            }
             scopeSo.FindProperty("planeManager").objectReferenceValue = planeManager;
             scopeSo.FindProperty("arCamera").objectReferenceValue = arCamera;
             scopeSo.ApplyModifiedPropertiesWithoutUndo();
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
-            Debug.Log("[GlowingSushi] シーンセットアップが完了しました。次に「3. プロジェクト設定」を実行してください。");
+
+            // 結線結果を検証してログへ出す(失敗時の切り分け用)
+            var wiredPrefabs = 0;
+            for (var i = 0; i < prefabsProp.arraySize; i++)
+            {
+                if (prefabsProp.GetArrayElementAtIndex(i).objectReferenceValue != null) wiredPrefabs++;
+            }
+            Debug.Log(
+                $"[GlowingSushi] シーンセットアップ完了。結線状態: sushiPrefabs={wiredPrefabs}/{prefabs.Length}, " +
+                $"behaviorSettings={(settingsProp.objectReferenceValue != null ? "OK" : "未設定")}, " +
+                $"planeManager={(planeManager != null ? "OK" : "未設定")}, arCamera={(arCamera != null ? "OK" : "未設定")}");
         }
 
         /// <summary>ARカメラの姿勢追従用TrackedPoseDriverを追加する(実機+XR Simulation両対応のバインディング)</summary>
@@ -308,6 +378,22 @@ namespace GlowingSushi.Editor
             so.ApplyModifiedPropertiesWithoutUndo();
 
             EditorUtility.SetDirty(rendererData);
+        }
+
+        /// <summary>生成済みの寿司1貫プレハブ(Sushi_*.prefab)をすべて読み込む</summary>
+        static SushiView[] LoadSushiPiecePrefabs()
+        {
+            var result = new System.Collections.Generic.List<SushiView>();
+            foreach (var pieceName in SushiPieceNames)
+            {
+                var path = $"{PrefabFolder}/Sushi_{pieceName.TrimEnd('_')}.prefab";
+                var prefab = AssetDatabase.LoadAssetAtPath<SushiView>(path);
+                if (prefab != null)
+                {
+                    result.Add(prefab);
+                }
+            }
+            return result.ToArray();
         }
 
         /// <summary>フォルダが無ければ作成する</summary>

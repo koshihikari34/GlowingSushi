@@ -14,8 +14,8 @@ namespace GlowingSushi.View
     public sealed class SushiSchoolView : MonoBehaviour
     {
         [SerializeField]
-        [Tooltip("生成する寿司のプレハブ")]
-        SushiView sushiPrefab;
+        [Tooltip("生成する寿司のプレハブ(種類ごと。個体生成時にランダムに選ばれる)")]
+        SushiView[] sushiPrefabs;
 
         SushiSchoolViewModel viewModel;
         readonly Dictionary<SushiViewModel, SushiView> views = new();
@@ -46,7 +46,9 @@ namespace GlowingSushi.View
         void AddView(SushiViewModel sushi)
         {
             if (views.ContainsKey(sushi)) return;
-            var view = Instantiate(sushiPrefab, sushi.Position.Value, sushi.Rotation.Value, transform);
+            // 寿司の種類(見た目)はランダムに選ぶ
+            var prefab = sushiPrefabs[Random.Range(0, sushiPrefabs.Length)];
+            var view = Instantiate(prefab, sushi.Position.Value, sushi.Rotation.Value, transform);
             view.Bind(sushi);
             views.Add(sushi, view);
         }

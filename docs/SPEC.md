@@ -103,7 +103,7 @@ Assets/GlowingSushi/Scripts/
 
 ### 4.6 View 層(MonoBehaviour、`[Inject]` で ViewModel を受け取り購読のみ行う) — `namespace GlowingSushi.View`
 - `SushiView` : `Position` / `Rotation` を購読して Transform を更新、`GlowIntensity` を購読して `MaterialPropertyBlock` 経由で Emission を更新、`State` に応じたアニメーション再生(アニメーションはPhase 1では未実装)
-- `SushiSchoolView` : `SushiSchoolViewModel` のコレクション変更に追従して `SushiView` の生成・破棄を行う
+- `SushiSchoolView` : `SushiSchoolViewModel` のコレクション変更に追従して `SushiView` の生成・破棄を行う。寿司の種類(見た目)はプレハブ配列からランダムに選ぶ(見た目の多様性はView層の関心事とする)
 - `VpsAnchorView` : `XRSpace` 配下に配置する、街中/空中それぞれのアンカーの見た目上の置き場所(Phase 2)
 
 ### 4.7 Root 層(コンポジションルート) — `namespace GlowingSushi.Root`
@@ -113,6 +113,7 @@ Assets/GlowingSushi/Scripts/
 
 ### 4.8 Editor 層(エディタ専用ツール) — `namespace GlowingSushi.Editor`
 - `GlowingSushiSetupMenu` : `GlowingSushi/Setup` メニュー。①マテリアル/プレハブ/設定アセット生成、②シーンセットアップ(ARリグ・DIスコープ構築)、③プロジェクト設定(`ARBackgroundRendererFeature` 追加・iOSカメラ権限)。シーンやプレハブのYAML手書きを避け、参照結線を確実にするためエディタスクリプトで生成する
+- 寿司モデル `sushi02.fbx` は7貫の盛り合わせ(gari/Salmon_/ebi1/ebi2/negitoro/engawa/maguro)のため、①でガリを除く6貫を1貫ずつ個別プレハブ(`Sushi_maguro.prefab` 等)に分解する。各プレハブはメッシュ中心を原点へ合わせ、最長辺を約0.15mに正規化する
 
 ## 5. VPS 運用における未確定事項
 
