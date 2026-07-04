@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e3417b9cf52c425faa60cb8aa994554, type: 3}
+  m_Name: SushiBehaviorSettings
+  m_EditorClassIdentifier: Assembly-CSharp::GlowingSushi.Domain.SushiBehaviorSettings
+  schoolSize: 10
+  containmentRadius: 1.5
+  spawnHeightAbovePlane: 0.6
+  neighborRadius: 1
+  separationRadius: 0.35
+  separationWeight: 1.5
+  alignmentWeight: 1
+  cohesionWeight: 1
+  wanderWeight: 0.6
+  maxSpeed: 0.6
+  fleeSpeed: 1.5
+  approachSpeed: 0.8
+  maxSteerForce: 2
+  approachInterval: 5
+  approachProbability: 0.3
+  approachDuration: 6
+  approachStopDistance: 0.5
+  touchHitRadius: 0.15
+  fleePropagationRadius: 0.4
+  fleeDuration: 3
+  glowPulsePeriod: 2
+  glowMinIntensity: 0.5
+  glowMaxIntensity: 2.5
+  fleeGlowMultiplier: 1.5
