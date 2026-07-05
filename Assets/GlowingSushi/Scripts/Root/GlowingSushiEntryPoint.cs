@@ -20,6 +20,7 @@ namespace GlowingSushi.Root
         readonly SurfaceSpotsViewModel surfaceSpots;
         readonly StatusViewModel status;
         readonly IObjectResolver resolver;
+        VpsPlacementViewModel vpsPlacement;
 
         public GlowingSushiEntryPoint(
             TouchInputService touchInput,
@@ -47,15 +48,14 @@ namespace GlowingSushi.Root
             planeDetection.Initialize();
 
             // VPS(Immersal)はLocalizer設定済みのシーンでのみ登録されているため、任意解決で初期化する
-            var hasVpsPlacement = resolver.TryResolve<VpsPlacementViewModel>(out var vpsPlacement);
-            if (hasVpsPlacement)
+            if (resolver.TryResolve<VpsPlacementViewModel>(out vpsPlacement))
             {
                 vpsPlacement.Initialize();
             }
             if (resolver.TryResolve<VpsLocalizationService>(out var vpsLocalization))
             {
                 vpsLocalization.Initialize();
-                status.AttachVps(vpsLocalization, hasVpsPlacement ? vpsPlacement : null);
+                status.AttachVps(vpsLocalization, vpsPlacement);
             }
         }
 
@@ -64,6 +64,8 @@ namespace GlowingSushi.Root
             var deltaTime = Time.deltaTime;
             aquarium.Tick(deltaTime);
             surfaceSpots.Tick(deltaTime);
+            // VPSスポットの配置/追従更新(成功イベントの翌フレームに処理される)
+            vpsPlacement?.Tick();
         }
     }
 }

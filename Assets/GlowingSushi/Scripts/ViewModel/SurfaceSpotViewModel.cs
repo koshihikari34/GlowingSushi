@@ -18,9 +18,10 @@ namespace GlowingSushi.ViewModel
         readonly System.Random random;
         readonly Subject<BattleClashInfo> clashSink;
 
-        readonly Pose surfacePose;   // 位置=スポット中心、up=表面の法線
-        readonly Vector3 right;      // 表面ローカルX軸
-        readonly Vector3 forward;    // 表面ローカルY軸
+        // 位置=スポット中心、up=表面の法線。VPSのローカライズ精度向上に追従して更新される
+        Pose surfacePose;
+        Vector3 right;      // 表面ローカルX軸
+        Vector3 forward;    // 表面ローカルY軸
 
         // 個体ごとのローカル状態(Sushisと同じ並び順)
         readonly List<Vector2> positions2D = new();
@@ -59,6 +60,18 @@ namespace GlowingSushi.ViewModel
             forward = surfacePose.rotation * Vector3.forward;
 
             SpawnMembers();
+        }
+
+        /// <summary>
+        /// スポットの表面姿勢を更新する。VPSのローカライズが繰り返し成功して
+        /// XRSpaceの位置が補正された際、スポットも実世界へ追従させるために使う。
+        /// 個体のローカル2D座標は保持されるため、群れごと新しい姿勢へ移動する。
+        /// </summary>
+        public void UpdateSurfacePose(Pose newPose)
+        {
+            surfacePose = newPose;
+            right = newPose.rotation * Vector3.right;
+            forward = newPose.rotation * Vector3.forward;
         }
 
         /// <summary>スポットのエリア内に個体をランダム配置する</summary>

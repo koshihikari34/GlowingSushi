@@ -58,7 +58,7 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 - Developer Tokenは `Assets/GlowingSushi/Resources/ImmersalToken.txt`(Git管理外)から `ImmersalTokenLoader` が実行時に読み込み、`ImmersalSDK` のAwake前に設定する
 - 使用マップ: bench(148692: 昼寝+散歩) / table(148693: ベイブレード) / vendingmachine(148694: 転がり)
 - アンカー(`VpsAnchorView`)の位置合わせは、XRMapインスペクタのDownloadで点群(Visualization)を取得し、点群を目印にエディタで手動調整する(Y軸=面の法線)
-- 既知の制約: スポットは初回ローカライズ時点のアンカー姿勢で固定される(その後のローカライズ精度向上には追従しない)
+- 配置タイミングの注意: Immersalの成功イベントは `SceneUpdater` がXRSpaceを動かす**前**に発火するため、イベント時点でアンカー姿勢を読むとずれる。配置はイベントの次フレームで行い、以降も成功のたびにスポット姿勢をアンカーへ追従更新する(ローカライズ精度の向上に追従)
 
 ### 3.5 フォールバック
 - VPS マップが無い、またはローカライズ失敗時は AR Foundation の平面検出のみでローカルに寿司群を出現させ、発光・群泳・近接逃走インタラクションは同様に動作させる

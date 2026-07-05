@@ -10,8 +10,11 @@ namespace GlowingSushi.ViewModel
     /// <summary>
     /// VPSローカライズ成功時に、対応するマップのアンカー位置へ表面ふるまいスポットを配置するViewModel。
     /// アンカーはVpsAnchorView(View層)が起動時にRegisterAnchorで登録してくる。
-    /// マップごとに独立したXRSpace配下にあるため、そのマップのローカライズが
-    /// 成功して初めてアンカーのワールド姿勢が正しくなる。よって配置はマップ単位で行う。
+    ///
+    /// 重要: Immersalの成功イベントはSceneUpdaterがXRSpaceを動かす「前」に発火するため、
+    /// イベント時点でアンカー姿勢を読むとローカライズ前のずれた位置になる。
+    /// そのため配置はイベントの次フレーム(Tick)で行い、以降も成功のたびに
+    /// スポット姿勢をアンカーへ追従更新する(ローカライズ精度の向上にも追従する)。
     /// </summary>
     public sealed class VpsPlacementViewModel : IDisposable
     {
@@ -20,8 +23,10 @@ namespace GlowingSushi.ViewModel
 
         // マップID → そのマップに属するアンカー(種別+Transform)の一覧
         readonly Dictionary<int, List<(SurfaceBehaviorType type, Transform anchor)>> anchorsByMap = new();
-        // スポット配置済みのマップID
-        readonly HashSet<int> placedMaps = new();
+        // マップID → 配置済みスポットと対応アンカー(追従更新用)
+        readonly Dictionary<int, List<(SurfaceSpotViewModel spot, Transform anchor)>> placedByMap = new();
+        // 直近のローカライズで成功し、次のTickで配置/更新すべきマップID
+        readonly HashSet<int> pendingMaps = new();
         IDisposable subscription;
 
         /// <summary>一度でもローカライズに成功したかどうか(UI表示などに使える)</summary>
@@ -41,7 +46,6 @@ namespace GlowingSushi.ViewModel
 
         /// <summary>
         /// アンカーを登録する。VpsAnchorViewが起動時に呼ぶ。
-        /// 対応するマップが既にローカライズ済みの場合は即座に配置する。
         /// </summary>
         /// <param name="mapId">アンカーが属するImmersalマップID</param>
         /// <param name="type">配置するふるまい種別</param>
@@ -49,12 +53,6 @@ namespace GlowingSushi.ViewModel
         public void RegisterAnchor(int mapId, SurfaceBehaviorType type, Transform anchor)
         {
             RegisteredAnchorCount++;
-
-            if (placedMaps.Contains(mapId))
-            {
-                PlaceSpot(type, anchor);
-                return;
-            }
 
             if (!anchorsByMap.TryGetValue(mapId, out var list))
             {
@@ -67,31 +65,48 @@ namespace GlowingSushi.ViewModel
         /// <summary>ローカライズ成功の購読を開始する。エントリポイントから起動時に呼ぶ。</summary>
         public void Initialize()
         {
-            subscription ??= localization.SuccessfulLocalizations.Subscribe(OnLocalized);
+            // イベント時点ではXRSpace未更新のため、ここでは記録だけして次のTickで処理する
+            subscription ??= localization.SuccessfulLocalizations.Subscribe(mapIds =>
+            {
+                foreach (var mapId in mapIds)
+                {
+                    pendingMaps.Add(mapId);
+                }
+            });
         }
 
-        /// <summary>ローカライズに成功したマップのアンカーへスポットを配置する(マップごとに1回だけ)</summary>
-        void OnLocalized(int[] mapIds)
+        /// <summary>
+        /// 成功イベントの翌フレームに呼ばれ、スポットの配置(初回)または追従更新(2回目以降)を行う。
+        /// エントリポイントのTickから毎フレーム呼ばれる(pendingが無ければ何もしない)。
+        /// </summary>
+        public void Tick()
         {
-            foreach (var mapId in mapIds)
-            {
-                if (placedMaps.Contains(mapId)) continue;
-                placedMaps.Add(mapId);
+            if (pendingMaps.Count == 0) return;
 
+            foreach (var mapId in pendingMaps)
+            {
+                if (placedByMap.TryGetValue(mapId, out var placed))
+                {
+                    // 配置済み: スポットをアンカーの最新姿勢へ追従させる
+                    foreach (var (spot, anchor) in placed)
+                    {
+                        spot.UpdateSurfacePose(new Pose(anchor.position, anchor.rotation));
+                    }
+                    continue;
+                }
+
+                // 初回: このマップのアンカーへスポットを配置する
                 if (!anchorsByMap.TryGetValue(mapId, out var anchors)) continue;
+                var newPlaced = new List<(SurfaceSpotViewModel, Transform)>();
                 foreach (var (type, anchor) in anchors)
                 {
-                    PlaceSpot(type, anchor);
+                    var spot = surfaceSpots.AddSpot(type, new Pose(anchor.position, anchor.rotation), Vector2.zero);
+                    newPlaced.Add((spot, anchor));
+                    PlacedSpotCount++;
                 }
-                anchorsByMap.Remove(mapId);
+                placedByMap.Add(mapId, newPlaced);
             }
-        }
-
-        void PlaceSpot(SurfaceBehaviorType type, Transform anchor)
-        {
-            // XRSpaceがローカライズ済みなので、アンカーのワールド姿勢は実世界に一致している
-            surfaceSpots.AddSpot(type, new Pose(anchor.position, anchor.rotation), Vector2.zero);
-            PlacedSpotCount++;
+            pendingMaps.Clear();
         }
 
         public void Dispose()

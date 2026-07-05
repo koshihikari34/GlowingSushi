@@ -46,14 +46,17 @@ namespace GlowingSushi.ViewModel
         /// <summary>
         /// 指定した表面姿勢にスポットを1つ追加する(Phase 2bのVPSアンカーからも使う)。
         /// </summary>
-        public void AddSpot(SurfaceBehaviorType type, Pose surfacePose, Vector2 localOffset)
+        /// <returns>追加したスポット(VPS追従更新のために呼び出し側が保持できる)</returns>
+        public SurfaceSpotViewModel AddSpot(SurfaceBehaviorType type, Pose surfacePose, Vector2 localOffset)
         {
             var right = surfacePose.rotation * Vector3.right;
             var forward = surfacePose.rotation * Vector3.forward;
             var center = new Pose(
                 surfacePose.position + right * localOffset.x + forward * localOffset.y,
                 surfacePose.rotation);
-            Spots.Add(new SurfaceSpotViewModel(settings, random, type, center, battleClash));
+            var spot = new SurfaceSpotViewModel(settings, random, type, center, battleClash);
+            Spots.Add(spot);
+            return spot;
         }
 
         /// <summary>全スポットのシミュレーションを1フレーム分進める</summary>
