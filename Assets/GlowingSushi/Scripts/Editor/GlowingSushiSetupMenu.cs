@@ -1,6 +1,8 @@
 using GlowingSushi.Domain;
 using GlowingSushi.Root;
 using GlowingSushi.View;
+using Immersal;
+using Immersal.XR;
 using Unity.XR.CoreUtils;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -907,6 +909,157 @@ namespace GlowingSushi.Editor
             so.ApplyModifiedPropertiesWithoutUndo();
 
             EditorUtility.SetDirty(rendererData);
+        }
+
+        // ------------------------------------------------------------
+        // 5. VPSセットアップ(Immersal)
+        // ------------------------------------------------------------
+
+        const string ImmersalPrefabPath = "Packages/com.immersal.core/Runtime/Resources/Prefabs/ImmersalSDK.prefab";
+
+        /// <summary>マップ定義: (マップID, 名前, そのマップに置くアンカーの[名前+種別]一覧)</summary>
+        static readonly (int mapId, string mapName, (string anchorName, SurfaceBehaviorType type)[] anchors)[] VpsMaps =
+        {
+            (148692, "bench", new[]
+            {
+                ("BenchNapAnchor", SurfaceBehaviorType.Napping),
+                ("BenchStrollAnchor", SurfaceBehaviorType.Strolling),
+            }),
+            (148693, "table", new[]
+            {
+                ("TableBattleAnchor", SurfaceBehaviorType.Battle),
+            }),
+            (148694, "vendingmachine", new[]
+            {
+                ("VendingRollingAnchor", SurfaceBehaviorType.Rolling),
+            }),
+        };
+
+        /// <summary>
+        /// ImmersalのVPS構成をシーンへ構築する:
+        /// ImmersalSDKプレハブ・トークンローダー・マップごとのXRSpace+XRMap+アンカー。
+        /// 実行後、各XRMapのインスペクタからDownload(Visualization)で点群を落とし、
+        /// 点群を目印にアンカーの位置を調整すること。
+        /// </summary>
+        [MenuItem("GlowingSushi/Setup/5. VPSセットアップ(Immersal)")]
+        public static void SetupVps()
+        {
+            var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+
+            // --- ImmersalSDK本体(プレハブ) ---
+            var sdk = Object.FindFirstObjectByType<ImmersalSDK>();
+            if (sdk == null)
+            {
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ImmersalPrefabPath);
+                if (prefab == null)
+                {
+                    Debug.LogError($"[GlowingSushi] ImmersalSDKプレハブが見つかりません: {ImmersalPrefabPath}");
+                    return;
+                }
+                var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+                sdk = instance.GetComponent<ImmersalSDK>();
+            }
+
+            var serverLocalization = sdk.GetComponentInChildren<ServerLocalization>(true);
+            var localizer = sdk.GetComponentInChildren<Localizer>(true);
+            if (serverLocalization == null || localizer == null)
+            {
+                Debug.LogError("[GlowingSushi] ImmersalSDK配下にServerLocalization/Localizerが見つかりません");
+                return;
+            }
+
+            // --- トークンローダー(Git管理外のトークンを実行時に読み込む) ---
+            var tokenLoader = Object.FindFirstObjectByType<ImmersalTokenLoader>();
+            if (tokenLoader == null)
+            {
+                tokenLoader = new GameObject("ImmersalTokenLoader").AddComponent<ImmersalTokenLoader>();
+            }
+            var loaderSo = new SerializedObject(tokenLoader);
+            loaderSo.FindProperty("immersalSdk").objectReferenceValue = sdk;
+            loaderSo.ApplyModifiedPropertiesWithoutUndo();
+
+            // --- マップごとのXRSpace+XRMap+アンカー ---
+            var spaceObjects = new System.Collections.Generic.List<GameObject>();
+            foreach (var (mapId, mapName, anchors) in VpsMaps)
+            {
+                var spaceName = $"XR Space {mapName}";
+                var spaceGo = GameObject.Find(spaceName);
+                if (spaceGo == null)
+                {
+                    spaceGo = new GameObject(spaceName);
+                    spaceGo.AddComponent<XRSpace>();
+                }
+                spaceObjects.Add(spaceGo);
+
+                // XRMap(サーバーローカライズなのでマップファイル埋め込みは不要)
+                var mapGoName = $"XR Map {mapId}-{mapName}";
+                if (spaceGo.transform.Find(mapGoName) == null)
+                {
+                    var mapGo = new GameObject(mapGoName);
+                    mapGo.transform.SetParent(spaceGo.transform, false);
+                    var map = mapGo.AddComponent<XRMap>();
+                    var mapSo = new SerializedObject(map);
+                    mapSo.FindProperty("m_MapId").intValue = mapId;
+                    mapSo.FindProperty("m_MapName").stringValue = mapName;
+                    mapSo.FindProperty("IsConfigured").boolValue = true;
+                    mapSo.FindProperty("m_LocalizationMethodObject").objectReferenceValue = serverLocalization;
+                    mapSo.ApplyModifiedPropertiesWithoutUndo();
+                }
+
+                // アンカー(位置はマップ点群を見ながら手動調整する前提で原点に置く)
+                foreach (var (anchorName, type) in anchors)
+                {
+                    if (spaceGo.transform.Find(anchorName) != null) continue;
+                    var anchorGo = new GameObject(anchorName);
+                    anchorGo.transform.SetParent(spaceGo.transform, false);
+                    var anchor = anchorGo.AddComponent<VpsAnchorView>();
+                    var anchorSo = new SerializedObject(anchor);
+                    anchorSo.FindProperty("mapId").intValue = mapId;
+                    anchorSo.FindProperty("behaviorType").enumValueIndex = (int)type;
+                    anchorSo.ApplyModifiedPropertiesWithoutUndo();
+                }
+            }
+
+            // --- LifetimeScopeへの結線(Localizer参照+アンカーへの注入対象登録) ---
+            var scope = Object.FindFirstObjectByType<GlowingSushiLifetimeScope>();
+            if (scope != null)
+            {
+                var scopeSo = new SerializedObject(scope);
+                scopeSo.FindProperty("immersalLocalizer").objectReferenceValue = localizer;
+
+                // XRSpace配下のVpsAnchorViewへ[Inject]が効くようautoInjectGameObjectsへ登録
+                var autoInject = scopeSo.FindProperty("autoInjectGameObjects");
+                foreach (var spaceGo in spaceObjects)
+                {
+                    var exists = false;
+                    for (var i = 0; i < autoInject.arraySize; i++)
+                    {
+                        if (autoInject.GetArrayElementAtIndex(i).objectReferenceValue == spaceGo)
+                        {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists)
+                    {
+                        autoInject.arraySize++;
+                        autoInject.GetArrayElementAtIndex(autoInject.arraySize - 1).objectReferenceValue = spaceGo;
+                    }
+                }
+                scopeSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+            else
+            {
+                Debug.LogError("[GlowingSushi] GlowingSushiLifetimeScopeがシーンにありません。先に「2. シーンセットアップ」を実行してください。");
+            }
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            Debug.Log(
+                "[GlowingSushi] VPSセットアップ完了。次の手順:\n" +
+                "1. 各「XR Map」を選択しインスペクタのDownloadでVisualization(点群)を取得\n" +
+                "2. 点群を目印に各アンカー(ギズモ表示あり)を実際の面の上へ移動・回転(Y軸=面の法線)\n" +
+                "3. LifetimeScopeのPlacement Modeを「None」にして現地ビルド(平面デモを止めてVPSのみにする場合)");
         }
 
         // ------------------------------------------------------------
