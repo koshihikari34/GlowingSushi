@@ -34,15 +34,20 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 ### 3.1 発光する寿司
 - 寿司マテリアルに Emission を持たせ、URP の Bloom と組み合わせて発光表現を行う
 - 発光強度は一定ではなく、時間経過や状態(通常/接近/逃走)に応じて変化させる(パルスなど)
+- 発光色は所属する群れごとに異なる(HDRカラーパレットから割当)
+- 泳いだ軌跡に発光粒子が残る(移動距離に応じて放出されるParticleSystem、群れの色にティント)
 
-### 3.2 群泳(魚群のような動き)
+### 3.2 群泳(魚群のような動き) — AR水族館
 - 複数の寿司が Boid アルゴリズム(分離・整列・結合)で群れとして自然に泳ぐ
 - ふらつき(wander)成分を加え、単調な周回にならないようにする
+- 魚らしさのため、最低速度(止まらない)と垂直速度減衰(主に水平に泳ぐ)を適用する
+- 群れは複数配置する(平面検出位置を基準に円周上へ水平・高さオフセットで散らし、AR水族館のような空間にする)
 
 ### 3.3 近接・逃走インタラクション
 - 一部の寿司がプレイヤー(カメラ)に近づいてくる「接近」状態を持つ
 - タッチ操作で寿司に触れると、その個体(および必要に応じて周辺個体)が逃走ベクトルへ状態遷移し、群れから離れるように泳ぐ
 - 一定時間後、通常の群泳状態へ復帰する
+- タッチ命中時は命中位置で発光粒子のバーストエフェクトと効果音(水泡ポップ音)を再生する。エフェクトは命中した群れの色にティントする
 
 ### 3.4 VPS 配置(屋外)
 - Immersal でのローカライズ成功後、`XRSpace` 配下に配置したアンカーポイントに寿司群を出現させる
@@ -89,10 +94,12 @@ Assets/GlowingSushi/Scripts/
 - `SushiSpawnData` : 寿司1匹分の初期配置データ(位置・初速・発光位相・ふらつきシード)。Service層がViewModelを直接生成するとService→ViewModelの逆方向依存になるため、Serviceはこのデータを返しViewModel層が実体化する
 
 ### 4.4 ViewModel 層(プレーン C# クラス、View を参照しない) — `namespace GlowingSushi.ViewModel`
-- `SushiViewModel` : `ReactiveProperty<Vector3> Position` / `ReactiveProperty<Quaternion> Rotation` / `ReactiveProperty<SushiState> State` / `ReactiveProperty<float> GlowIntensity` を公開。`Interact(Vector3 touchWorldPos)` などのコマンドメソッドを持つ
-- `SushiSchoolViewModel` : `ObservableCollections.R3` で個体群(`SushiViewModel` のコレクション)を管理し、毎フレーム Boid 計算を駆動する
-- `ArPlacementViewModel` : AR平面検出状態を公開し、検出時に群れの出現をトリガーする
-- `VpsPlacementViewModel` : Immersal ローカライズ状態を公開し、成功時に対応するアンカーの群れ出現をトリガーする
+- `AquariumViewModel` : 水族館全体を管理。複数の `SushiSchoolViewModel` を生成(円周配置+高さ差+色パレット割当)し `ObservableList` で公開、全群れのTick駆動、タッチの全群れ横断ヒット判定、タッチ成功イベント `Observable<TouchHitInfo>` の発行を行う
+- `SushiViewModel` : `ReactiveProperty<Vector3> Position` / `ReactiveProperty<Quaternion> Rotation` / `ReactiveProperty<SushiState> State` / `ReactiveProperty<float> GlowIntensity` と群れ色 `Color GlowColor` を公開。`Interact(Vector3 touchWorldPos)` などのコマンドメソッドを持つ
+- `SushiSchoolViewModel` : 1つの群れ。固有のアンカーと発光色を持ち、`ObservableCollections.R3` で個体群を管理して毎フレーム Boid 計算を駆動する。DI直登録はせず `AquariumViewModel` が生成する。タッチ用に `FindHit(Ray)` / `FleeFrom(個体, 位置)` を公開
+- `TouchHitInfo` : タッチ成功イベントデータ(命中位置+群れの発光色)
+- `ArPlacementViewModel` : AR平面検出状態を公開し、検出時に水族館(複数群れ)の出現をトリガーする
+- `VpsPlacementViewModel` : Immersal ローカライズ状態を公開し、成功時に対応するアンカーの群れ出現をトリガーする(Phase 2)
 
 ### 4.5 Service 層(VContainer で DI 登録、ViewModel から注入) — `namespace GlowingSushi.Service`
 - `SushiSpawnService` : 群れの初期配置データ(`SushiSpawnData` 群)の生成(ViewModelの実体化はViewModel層の責務)
@@ -102,8 +109,9 @@ Assets/GlowingSushi/Scripts/
 - `VpsLocalizationService` : Immersal `Localizer` の UnityEvent を R3 の Observable に変換(Phase 2)
 
 ### 4.6 View 層(MonoBehaviour、`[Inject]` で ViewModel を受け取り購読のみ行う) — `namespace GlowingSushi.View`
-- `SushiView` : `Position` / `Rotation` を購読して Transform を更新、`GlowIntensity` を購読して `MaterialPropertyBlock` 経由で Emission を更新、`State` に応じたアニメーション再生(アニメーションはPhase 1では未実装)
-- `SushiSchoolView` : `SushiSchoolViewModel` のコレクション変更に追従して `SushiView` の生成・破棄を行う。寿司の種類(見た目)はプレハブ配列からランダムに選ぶ(見た目の多様性はView層の関心事とする)
+- `SushiView` : `Position` / `Rotation` を購読して Transform を更新、`GlowIntensity` を購読して `MaterialPropertyBlock` 経由で Emission を更新(色はViewModelの `GlowColor` × 強度)。軌跡ParticleSystemを群れ色にティント。`State` に応じたアニメーション再生は未実装
+- `AquariumView` : `AquariumViewModel` の群れ一覧と各群れの個体一覧の増減をネスト購読して `SushiView` の生成・破棄を行う。寿司の種類(見た目)はプレハブ配列からランダムに選ぶ(見た目の多様性はView層の関心事とする)
+- `TouchEffectView` : `TouchHit` を購読し、命中位置でバーストパーティクル(群れ色ティント)と効果音を再生する
 - `VpsAnchorView` : `XRSpace` 配下に配置する、街中/空中それぞれのアンカーの見た目上の置き場所(Phase 2)
 
 ### 4.7 Root 層(コンポジションルート) — `namespace GlowingSushi.Root`
@@ -136,10 +144,11 @@ Assets/GlowingSushi/Scripts/
 
 | 分類 | パラメータ | 初期値 |
 |---|---|---|
+| 水族館 | 群れ数 / 色パレット / 水平間隔 / 高さ差 | 3群 / シアン・オレンジ・マゼンタ / 1.2m / 0.4m |
 | 群れ | 個体数 / 引き戻し半径 / 平面上の出現高さ | 10匹 / 1.5m / 0.6m |
 | Boid | 近傍半径 / 分離半径 | 1.0m / 0.35m |
-| Boid重み | 分離 / 整列 / 結合 / ふらつき | 1.5 / 1.0 / 1.0 / 0.6 |
-| 速度 | 通常 / 逃走 / 接近 / 操舵力上限 | 0.6 / 1.5 / 0.8 m/s / 2.0 |
+| Boid重み | 分離 / 整列 / 結合 / ふらつき | 1.8 / 1.5 / 1.0 / 0.35 |
+| 速度 | 通常 / 最低 / 逃走 / 接近 / 操舵力上限 / 垂直減衰 | 0.6 / 0.25 / 1.5 / 0.8 m/s / 2.0 / 0.6 |
 | 接近 | 判定間隔 / 確率 / 最大時間 / 停止距離 | 5s / 0.3 / 6s / 0.5m |
 | タッチ・逃走 | ヒット半径 / 伝播半径 / 逃走時間 | 0.15m / 0.4m / 3s |
 | 発光 | パルス周期 / 最小 / 最大 / 逃走時係数 | 2s / 0.5 / 2.5 / 1.5 |
