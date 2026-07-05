@@ -30,6 +30,7 @@ namespace GlowingSushi.Editor
         const string AudioFolder = "Assets/GlowingSushi/Audio";
         const string TouchSoundPath = "Assets/GlowingSushi/Audio/TouchPop.wav";
         const string BgmPath = "Assets/GlowingSushi/Audio/AquariumBgm.wav";
+        const string ClashSoundPath = "Assets/GlowingSushi/Audio/BattleClash.wav";
 
         /// <summary>
         /// sushi02モデル(盛り合わせ)から個別プレハブ化する寿司のノード名。
@@ -61,6 +62,7 @@ namespace GlowingSushi.Editor
             CreateBehaviorSettings();
             CreateTouchSound();
             CreateBgm();
+            CreateBattleClashSound();
 
             AssetDatabase.SaveAssets();
             Debug.Log("[GlowingSushi] アセット生成が完了しました。次に「2. シーンセットアップ」を実行してください。");
@@ -448,6 +450,48 @@ namespace GlowingSushi.Editor
             AssetDatabase.ImportAsset(BgmPath);
         }
 
+        /// <summary>
+        /// ベイブレード衝突音(金属的な「キン」音)を合成して生成する。
+        /// 非整数倍の高次部分音+速い減衰で金属打撃音を模す。差し替え可能。
+        /// </summary>
+        static void CreateBattleClashSound()
+        {
+            if (AssetDatabase.LoadAssetAtPath<AudioClip>(ClashSoundPath) != null) return;
+
+            const int sampleRate = 44100;
+            const float duration = 0.18f;
+            var sampleCount = (int)(sampleRate * duration);
+            var samples = new float[sampleCount];
+
+            // 金属音らしい非整数倍の部分音(周波数, 振幅, 減衰速度)
+            var partials = new[]
+            {
+                (frequency: 2500f, amplitude: 0.5f, decay: 40f),
+                (frequency: 3730f, amplitude: 0.3f, decay: 55f),
+                (frequency: 5170f, amplitude: 0.2f, decay: 70f),
+            };
+
+            var noiseRandom = new System.Random(12345);
+            for (var i = 0; i < sampleCount; i++)
+            {
+                var t = i / (float)sampleRate;
+                var value = 0f;
+                foreach (var (frequency, amplitude, decay) in partials)
+                {
+                    value += Mathf.Sin(2f * Mathf.PI * frequency * t) * amplitude * Mathf.Exp(-decay * t);
+                }
+                // 打撃感を出す最初の数msのノイズ
+                if (t < 0.006f)
+                {
+                    value += ((float)noiseRandom.NextDouble() * 2f - 1f) * 0.4f * (1f - t / 0.006f);
+                }
+                samples[i] = value * 0.7f;
+            }
+
+            WriteWav(ClashSoundPath, samples, sampleRate);
+            AssetDatabase.ImportAsset(ClashSoundPath);
+        }
+
         /// <summary>float配列をモノラル16bit PCMのWAVファイルとして書き出す</summary>
         static void WriteWav(string path, float[] samples, int sampleRate)
         {
@@ -579,6 +623,10 @@ namespace GlowingSushi.Editor
             // --- BGMプレイヤー(2Dループ再生) ---
             SetupBgmPlayer();
 
+            // --- 表面ふるまいView+ベイブレード衝突演出 ---
+            SetupSurfaceSpotsView(prefabs);
+            SetupBattleEffectView();
+
             // --- DIスコープ ---
             var scope = Object.FindFirstObjectByType<GlowingSushiLifetimeScope>();
             if (scope == null)
@@ -677,6 +725,93 @@ namespace GlowingSushi.Editor
             if (soundProp.objectReferenceValue == null)
             {
                 soundProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(TouchSoundPath);
+                effectSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+        }
+
+        /// <summary>表面ふるまいスポットViewをシーンへ構築し、寿司プレハブ配列を結線する</summary>
+        static void SetupSurfaceSpotsView(SushiView[] prefabs)
+        {
+            var spotsView = Object.FindFirstObjectByType<SurfaceSpotsView>();
+            if (spotsView == null)
+            {
+                spotsView = new GameObject("SurfaceSpotsView").AddComponent<SurfaceSpotsView>();
+            }
+            var so = new SerializedObject(spotsView);
+            var prefabsProp = so.FindProperty("sushiPrefabs");
+            prefabsProp.arraySize = prefabs.Length;
+            for (var i = 0; i < prefabs.Length; i++)
+            {
+                prefabsProp.GetArrayElementAtIndex(i).objectReferenceValue = prefabs[i];
+            }
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>ベイブレード衝突演出View(火花パーティクル+衝突音)をシーンへ構築する</summary>
+        static void SetupBattleEffectView()
+        {
+            var effectView = Object.FindFirstObjectByType<BattleEffectView>();
+            if (effectView == null)
+            {
+                var go = new GameObject("BattleEffectView");
+                effectView = go.AddComponent<BattleEffectView>();
+
+                // 火花パーティクル(金属衝突らしいオレンジの線状スパーク、HDRマテリアルでBloom発光)
+                var psGo = new GameObject("SparkParticles");
+                psGo.transform.SetParent(go.transform, false);
+                var ps = psGo.AddComponent<ParticleSystem>();
+                var main = ps.main;
+                main.playOnAwake = false;
+                main.loop = false;
+                main.duration = 0.4f;
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(0.2f, 0.45f);
+                main.startSpeed = new ParticleSystem.MinMaxCurve(0.8f, 2.0f);
+                main.startSize = new ParticleSystem.MinMaxCurve(0.004f, 0.012f);
+                main.startColor = new Color(1f, 0.85f, 0.4f); // 火花のオレンジ
+                main.gravityModifier = 0.5f; // 火花は落ちる
+                main.maxParticles = 200;
+
+                var emission = ps.emission;
+                emission.rateOverTime = 0f;
+                emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 25) });
+
+                var shape = ps.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Sphere;
+                shape.radius = 0.01f;
+
+                var colorOverLifetime = ps.colorOverLifetime;
+                colorOverLifetime.enabled = true;
+                var gradient = new Gradient();
+                gradient.SetKeys(
+                    new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                    new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+                colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
+
+                // 進行方向に伸ばして「線状の火花」に見せる
+                var renderer = psGo.GetComponent<ParticleSystemRenderer>();
+                renderer.sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>(ParticleMaterialPath);
+                renderer.renderMode = ParticleSystemRenderMode.Stretch;
+                renderer.lengthScale = 4f;
+
+                // 衝突音(3D音源)
+                var audioSource = go.AddComponent<AudioSource>();
+                audioSource.playOnAwake = false;
+                audioSource.spatialBlend = 1f;
+
+                var newSo = new SerializedObject(effectView);
+                newSo.FindProperty("sparkParticles").objectReferenceValue = ps;
+                newSo.FindProperty("audioSource").objectReferenceValue = audioSource;
+                newSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            // 衝突音のアセット参照(未設定の場合のみ結線を試みる)
+            var effectSo = new SerializedObject(effectView);
+            var soundProp = effectSo.FindProperty("clashSound");
+            if (soundProp.objectReferenceValue == null)
+            {
+                soundProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(ClashSoundPath);
                 effectSo.ApplyModifiedPropertiesWithoutUndo();
             }
         }
