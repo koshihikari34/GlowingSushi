@@ -13,6 +13,7 @@ namespace GlowingSushi.ViewModel
     {
         readonly SushiBehaviorSettings settings;
         readonly System.Random random;
+        readonly bool canApproach;
 
         /// <summary>ワールド座標</summary>
         public ReactiveProperty<Vector3> Position { get; }
@@ -46,10 +47,12 @@ namespace GlowingSushi.ViewModel
         /// <summary>逃走の起点(タッチされたワールド座標)</summary>
         public Vector3 FleeFrom;
 
-        public SushiViewModel(SushiBehaviorSettings settings, System.Random random, SushiSpawnData spawnData, Color glowColor)
+        /// <param name="canApproach">trueの場合のみ、時々カメラへ接近する(接近専用個体)</param>
+        public SushiViewModel(SushiBehaviorSettings settings, System.Random random, SushiSpawnData spawnData, Color glowColor, bool canApproach)
         {
             this.settings = settings;
             this.random = random;
+            this.canApproach = canApproach;
             GlowColor = glowColor;
 
             Position = new ReactiveProperty<Vector3>(spawnData.Position);
@@ -89,10 +92,11 @@ namespace GlowingSushi.ViewModel
             switch (State.Value)
             {
                 case SushiState.Schooling:
-                    // 一定間隔ごとに確率で接近を開始する
+                    // 接近専用個体のみ、一定間隔ごとに確率で接近を開始する
+                    // (群れのメンバーは隊列を保つため接近しない)
                     if (StateTimer <= 0f)
                     {
-                        if (random.NextDouble() < settings.approachProbability)
+                        if (canApproach && random.NextDouble() < settings.approachProbability)
                         {
                             State.Value = SushiState.Approaching;
                             StateTimer = settings.approachDuration;

@@ -23,13 +23,15 @@ namespace GlowingSushi.Service
         /// アンカー中心の球内にランダム配置した群れの初期データを生成する。
         /// </summary>
         /// <param name="anchorCenter">群れの中心となるワールド座標</param>
-        public IReadOnlyList<SushiSpawnData> CreateSchool(Vector3 anchorCenter)
+        /// <param name="count">生成する個体数(0以下なら設定のschoolSizeを使う)</param>
+        public IReadOnlyList<SushiSpawnData> CreateSchool(Vector3 anchorCenter, int count = 0)
         {
-            var result = new List<SushiSpawnData>(settings.schoolSize);
+            if (count <= 0) count = settings.schoolSize;
+            var result = new List<SushiSpawnData>(count);
             // アンカーの引き戻し半径より内側に収めて出現させる
             var spawnRadius = settings.containmentRadius * 0.5f;
 
-            for (var i = 0; i < settings.schoolSize; i++)
+            for (var i = 0; i < count; i++)
             {
                 var position = anchorCenter + NextInsideSphere() * spawnRadius;
                 var velocity = NextOnSphere() * (settings.maxSpeed * 0.5f);

@@ -41,7 +41,7 @@ namespace GlowingSushi.ViewModel
         }
 
         /// <summary>
-        /// 検出された平面を基準に、設定された数の群れを配置する。
+        /// 検出された平面を基準に、設定された数の群れと接近専用個体を配置する。
         /// 群れは平面中心の周囲に水平オフセットと高さ差をつけて散らし、色はパレットから順に割り当てる。
         /// </summary>
         public void Spawn(Pose planePose)
@@ -50,6 +50,7 @@ namespace GlowingSushi.ViewModel
 
             var baseCenter = planePose.position + planePose.up * settings.spawnHeightAbovePlane;
 
+            // --- 通常の群れ(軌道アトラクタで輪を描いて泳ぐ。接近はしない) ---
             for (var i = 0; i < settings.schoolCount; i++)
             {
                 // 群れを円周上に等間隔で散らす(1つ目は中心)
@@ -65,7 +66,30 @@ namespace GlowingSushi.ViewModel
                     ? settings.schoolColors[i % settings.schoolColors.Length]
                     : Color.white;
 
-                Schools.Add(new SushiSchoolViewModel(spawnService, cameraPose, settings, random, anchor, color));
+                var config = new SchoolConfig(
+                    anchor,
+                    color,
+                    settings.schoolSize,
+                    orbitEnabled: true,
+                    // 位相と回転方向を群れごとに変えて画に変化をつける
+                    orbitPhase: i * (2f * Mathf.PI / Mathf.Max(1, settings.schoolCount)),
+                    orbitClockwise: i % 2 == 0,
+                    canApproach: false);
+                Schools.Add(new SushiSchoolViewModel(spawnService, cameraPose, settings, random, config));
+            }
+
+            // --- 接近専用個体(お客好き寿司)。群れとは別の小グループで時々カメラへ寄ってくる ---
+            if (settings.curiousCount > 0)
+            {
+                var curiousConfig = new SchoolConfig(
+                    baseCenter + Vector3.up * (settings.schoolHeightStep * 0.5f),
+                    settings.curiousColor,
+                    settings.curiousCount,
+                    orbitEnabled: false,
+                    orbitPhase: 0f,
+                    orbitClockwise: false,
+                    canApproach: true);
+                Schools.Add(new SushiSchoolViewModel(spawnService, cameraPose, settings, random, curiousConfig));
             }
         }
 

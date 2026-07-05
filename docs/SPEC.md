@@ -39,14 +39,16 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 
 ### 3.2 群泳(魚群のような動き) — AR水族館
 - 複数の寿司が Boid アルゴリズム(分離・整列・結合)で群れとして自然に泳ぐ
-- ふらつき(wander)成分を加え、単調な周回にならないようにする
-- 魚らしさのため、最低速度(止まらない)と垂直速度減衰(主に水平に泳ぐ)を適用する
-- 群れは複数配置する(平面検出位置を基準に円周上へ水平・高さオフセットで散らし、AR水族館のような空間にする)
+- **軌道アトラクタ**: 各群れはアンカーを中心に円軌道でゆっくり周回する移動目標を追いかける。整列と組み合わさり、群れ全体が輪を描いて流れるように泳ぐ(水族館らしい遊泳の核)。位相・回転方向・上下の揺れは群れごとに変える
+- 群れのメンバーは隊列を保つため**カメラへの接近はしない**(接近は3.3の専用個体の役割)
+- ふらつき(wander)成分は弱めに加え、ジッターを抑える
+- 魚らしさのため、最低速度(止まらない)・垂直速度減衰(主に水平に泳ぐ)・旋回時のバンク(内側へ傾く)を適用する
+- 群れは複数配置する(平面検出位置を基準に円周上へ水平・高さオフセットで散らし、AR水族館のような空間にする)。群れ同士が混ざらないよう「引き戻し半径 < 群れ間隔」を保つ
 
 ### 3.3 近接・逃走インタラクション
-- 一部の寿司がプレイヤー(カメラ)に近づいてくる「接近」状態を持つ
-- タッチ操作で寿司に触れると、その個体(および必要に応じて周辺個体)が逃走ベクトルへ状態遷移し、群れから離れるように泳ぐ
-- 一定時間後、通常の群泳状態へ復帰する
+- **接近専用個体(お客好き寿司)**: 群れとは別の少数の個体(金色発光)が水族館中央に漂い、周期的にプレイヤー(カメラ)へ近づいてくる。時間経過または十分近づいたら中央へ戻る
+- タッチ操作で寿司に触れると、その個体(および周辺個体)が逃走状態へ遷移し、離れるように泳ぐ(群れメンバー・接近専用個体とも有効)
+- 一定時間後、通常状態へ復帰する
 - タッチ命中時は命中位置で発光粒子のバーストエフェクトと効果音(水泡ポップ音)を再生する。エフェクトは命中した群れの色にティントする
 
 ### 3.4 VPS 配置(屋外)
@@ -94,9 +96,10 @@ Assets/GlowingSushi/Scripts/
 - `SushiSpawnData` : 寿司1匹分の初期配置データ(位置・初速・発光位相・ふらつきシード)。Service層がViewModelを直接生成するとService→ViewModelの逆方向依存になるため、Serviceはこのデータを返しViewModel層が実体化する
 
 ### 4.4 ViewModel 層(プレーン C# クラス、View を参照しない) — `namespace GlowingSushi.ViewModel`
-- `AquariumViewModel` : 水族館全体を管理。複数の `SushiSchoolViewModel` を生成(円周配置+高さ差+色パレット割当)し `ObservableList` で公開、全群れのTick駆動、タッチの全群れ横断ヒット判定、タッチ成功イベント `Observable<TouchHitInfo>` の発行を行う
-- `SushiViewModel` : `ReactiveProperty<Vector3> Position` / `ReactiveProperty<Quaternion> Rotation` / `ReactiveProperty<SushiState> State` / `ReactiveProperty<float> GlowIntensity` と群れ色 `Color GlowColor` を公開。`Interact(Vector3 touchWorldPos)` などのコマンドメソッドを持つ
-- `SushiSchoolViewModel` : 1つの群れ。固有のアンカーと発光色を持ち、`ObservableCollections.R3` で個体群を管理して毎フレーム Boid 計算を駆動する。DI直登録はせず `AquariumViewModel` が生成する。タッチ用に `FindHit(Ray)` / `FleeFrom(個体, 位置)` を公開
+- `AquariumViewModel` : 水族館全体を管理。複数の `SushiSchoolViewModel` を生成(円周配置+高さ差+色パレット割当+軌道位相/方向の割当)し `ObservableList` で公開、全群れのTick駆動、タッチの全群れ横断ヒット判定、タッチ成功イベント `Observable<TouchHitInfo>` の発行を行う。接近専用個体グループ(金色・軌道なし・canApproach=true)もここで追加生成する
+- `SushiViewModel` : `ReactiveProperty<Vector3> Position` / `ReactiveProperty<Quaternion> Rotation` / `ReactiveProperty<SushiState> State` / `ReactiveProperty<float> GlowIntensity` と群れ色 `Color GlowColor` を公開。`Interact(Vector3 touchWorldPos)` などのコマンドメソッドを持つ。`canApproach` がtrueの個体のみ接近状態へ遷移する
+- `SushiSchoolViewModel` : 1つの群れ。`SchoolConfig`(アンカー・色・個体数・軌道有無/位相/方向・接近可否)を受けて生成され、`ObservableCollections.R3` で個体群を管理して毎フレーム Boid 計算+軌道アトラクタ追従+バンク回転を駆動する。DI直登録はせず `AquariumViewModel` が生成する。タッチ用に `FindHit(Ray)` / `FleeFrom(個体, 位置)` を公開
+- `SchoolConfig` : 群れ1つ分の生成設定(readonly struct)
 - `TouchHitInfo` : タッチ成功イベントデータ(命中位置+群れの発光色)
 - `ArPlacementViewModel` : AR平面検出状態を公開し、検出時に水族館(複数群れ)の出現をトリガーする
 - `VpsPlacementViewModel` : Immersal ローカライズ状態を公開し、成功時に対応するアンカーの群れ出現をトリガーする(Phase 2)
@@ -147,9 +150,10 @@ Assets/GlowingSushi/Scripts/
 | 水族館 | 群れ数 / 色パレット / 水平間隔 / 高さ差 | 3群 / シアン・オレンジ・マゼンタ / 1.6m / 0.4m |
 | 群れ | 個体数 / 引き戻し半径 / 平面上の出現高さ | 14匹 / 0.9m / 0.6m |
 | Boid | 近傍半径 / 分離半径 | 0.8m / 0.25m |
-| Boid重み | 分離 / 整列 / 結合 / ふらつき | 1.8 / 1.8 / 1.8 / 0.25 |
+| Boid重み | 分離 / 整列 / 結合 / ふらつき | 1.8 / 1.8 / 1.8 / 0.15 |
+| 軌道 | 半径 / 周期 / Seek重み / 上下揺れ / バンク強度 | 0.5m / 18s / 1.5 / 0.1m / 30 |
 | 速度 | 通常 / 最低 / 逃走 / 接近 / 操舵力上限 / 垂直減衰 | 0.45 / 0.2 / 1.5 / 0.8 m/s / 2.0 / 0.6 |
-| 接近 | 判定間隔 / 確率 / 最大時間 / 停止距離 | 5s / 0.3 / 6s / 0.5m |
+| 接近専用個体 | 数 / 色 / 判定間隔 / 確率 / 最大時間 / 停止距離 | 2匹 / 金色 / 4s / 0.5 / 6s / 0.5m |
 | タッチ・逃走 | ヒット半径 / 伝播半径 / 逃走時間 | 0.15m / 0.4m / 3s |
 | 発光 | パルス周期 / 最小 / 最大 / 逃走時係数 | 2s / 0.5 / 2.5 / 1.5 |
 | 軌跡粒子 | 放出密度 / 寿命 / サイズ | 60個/m / 1.5s / 0.015m |

@@ -55,7 +55,31 @@ namespace GlowingSushi.Domain
         public float cohesionWeight = 1.8f;
 
         [Tooltip("ふらつきの重み")]
-        public float wanderWeight = 0.25f;
+        public float wanderWeight = 0.15f;
+
+        [Header("軌道アトラクタ(流れるような群泳)")]
+        [Tooltip("群れが追いかける軌道目標の半径(メートル)")]
+        public float orbitRadius = 0.5f;
+
+        [Tooltip("軌道目標が1周する時間(秒)")]
+        public float orbitPeriod = 18f;
+
+        [Tooltip("軌道目標へのSeek重み")]
+        public float orbitTargetWeight = 1.5f;
+
+        [Tooltip("軌道目標の上下の揺れ幅(メートル)")]
+        public float orbitVerticalBob = 0.1f;
+
+        [Tooltip("旋回時に機体を内側へ傾ける(バンク)強度")]
+        public float bankFactor = 30f;
+
+        [Header("接近専用個体(お客好き寿司)")]
+        [Tooltip("群れとは別にカメラへ寄ってくる個体の数")]
+        public int curiousCount = 2;
+
+        [Tooltip("接近専用個体の発光色(HDR)")]
+        [ColorUsage(false, true)]
+        public Color curiousColor = new(1.0f, 0.85f, 0.3f); // 金色
 
         [Header("速度・操舵")]
         [Tooltip("通常時の最大速度(m/s)")]
@@ -77,13 +101,13 @@ namespace GlowingSushi.Domain
         [Tooltip("操舵力の上限(加速度)")]
         public float maxSteerForce = 2.0f;
 
-        [Header("接近行動")]
+        [Header("接近行動(接近専用個体のみが使用)")]
         [Tooltip("接近するかどうかを判定する間隔(秒)")]
-        public float approachInterval = 5f;
+        public float approachInterval = 4f;
 
         [Tooltip("判定ごとに接近を始める確率(0〜1)")]
         [Range(0f, 1f)]
-        public float approachProbability = 0.3f;
+        public float approachProbability = 0.5f;
 
         [Tooltip("接近を続ける最大時間(秒)")]
         public float approachDuration = 6f;
