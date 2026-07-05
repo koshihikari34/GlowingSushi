@@ -26,6 +26,16 @@ namespace GlowingSushi.View
             this.viewModel = viewModel;
         }
 
+        void Awake()
+        {
+            // 行数が増えても切り捨てられないようにする(デフォルトはTruncateで枠外の行が消える)
+            if (statusText != null)
+            {
+                statusText.verticalOverflow = VerticalWrapMode.Overflow;
+                statusText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            }
+        }
+
         void Update()
         {
             if (statusText == null || viewModel == null) return;

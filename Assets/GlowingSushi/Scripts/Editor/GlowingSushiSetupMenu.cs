@@ -756,7 +756,7 @@ namespace GlowingSushi.Editor
             panelRect.anchorMax = new Vector2(0f, 1f);
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = new Vector2(10f, -50f);
-            panelRect.sizeDelta = new Vector2(560f, 150f);
+            panelRect.sizeDelta = new Vector2(620f, 200f);
 
             var textGo = new GameObject("StatusText");
             textGo.transform.SetParent(panelGo.transform, false);
