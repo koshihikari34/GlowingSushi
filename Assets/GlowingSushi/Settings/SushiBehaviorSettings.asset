@@ -12,27 +12,43 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1e3417b9cf52c425faa60cb8aa994554, type: 3}
   m_Name: SushiBehaviorSettings
   m_EditorClassIdentifier: Assembly-CSharp::GlowingSushi.Domain.SushiBehaviorSettings
-  schoolSize: 10
-  containmentRadius: 1.5
+  schoolCount: 3
+  schoolColors:
+  - {r: 0.2, g: 0.9, b: 1, a: 1}
+  - {r: 1, g: 0.6, b: 0.2, a: 1}
+  - {r: 1, g: 0.3, b: 0.9, a: 1}
+  schoolSpacing: 1.6
+  schoolHeightStep: 0.4
+  schoolSize: 14
+  containmentRadius: 0.9
   spawnHeightAbovePlane: 0.6
-  neighborRadius: 1
-  separationRadius: 0.35
-  separationWeight: 1.5
-  alignmentWeight: 1
-  cohesionWeight: 1
-  wanderWeight: 0.6
-  maxSpeed: 0.6
+  neighborRadius: 0.8
+  separationRadius: 0.25
+  separationWeight: 1.8
+  alignmentWeight: 1.8
+  cohesionWeight: 1.8
+  wanderWeight: 0.15
+  orbitRadius: 0.5
+  orbitPeriod: 18
+  orbitTargetWeight: 1.5
+  orbitVerticalBob: 0.1
+  bankFactor: 30
+  curiousCount: 2
+  curiousColor: {r: 1, g: 0.85, b: 0.3, a: 1}
+  maxSpeed: 0.45
+  minSpeed: 0.2
+  verticalDamping: 0.6
   fleeSpeed: 1.5
   approachSpeed: 0.8
   maxSteerForce: 2
-  approachInterval: 5
-  approachProbability: 0.3
+  approachInterval: 4
+  approachProbability: 0.5
   approachDuration: 6
   approachStopDistance: 0.5
   touchHitRadius: 0.15
   fleePropagationRadius: 0.4
   fleeDuration: 3
   glowPulsePeriod: 2
-  glowMinIntensity: 0.5
-  glowMaxIntensity: 2.5
+  glowMinIntensity: 0.35
+  glowMaxIntensity: 1.5
   fleeGlowMultiplier: 1.5
