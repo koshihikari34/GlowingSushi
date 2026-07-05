@@ -27,10 +27,15 @@ namespace GlowingSushi.Root
         [Tooltip("ARカメラ(XR Origin配下のMain Camera)")]
         Camera arCamera;
 
+        [SerializeField]
+        [Tooltip("平面検出時に何を出すか(水族館/表面ふるまいデモ/両方)")]
+        PlacementMode placementMode = PlacementMode.Both;
+
         protected override void Configure(IContainerBuilder builder)
         {
-            // シーン上の参照
+            // シーン上の参照・設定
             builder.RegisterInstance(behaviorSettings);
+            builder.RegisterInstance(placementMode);
             builder.RegisterComponent(planeManager);
             builder.RegisterComponent(arCamera);
 
@@ -40,13 +45,16 @@ namespace GlowingSushi.Root
             builder.Register<TouchInputService>(Lifetime.Singleton);
             builder.Register<SushiSpawnService>(Lifetime.Singleton);
 
-            // ViewModel層(SushiSchoolViewModelはAquariumViewModelが生成するため登録しない)
+            // ViewModel層(School/SpotのVMは親VMが生成するため登録しない)
             builder.Register<AquariumViewModel>(Lifetime.Singleton);
+            builder.Register<SurfaceSpotsViewModel>(Lifetime.Singleton);
             builder.Register<ArPlacementViewModel>(Lifetime.Singleton);
 
             // View層(シーン内のコンポーネントへ注入)
             builder.RegisterComponentInHierarchy<AquariumView>();
             builder.RegisterComponentInHierarchy<TouchEffectView>();
+            builder.RegisterComponentInHierarchy<SurfaceSpotsView>();
+            builder.RegisterComponentInHierarchy<BattleEffectView>();
 
             // エントリポイント
             builder.RegisterEntryPoint<GlowingSushiEntryPoint>();
