@@ -104,3 +104,7 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Immersal開発者トークン(秘密情報のためコミットしない)
+Assets/GlowingSushi/Resources/ImmersalToken.txt
+Assets/GlowingSushi/Resources/ImmersalToken.txt.meta
