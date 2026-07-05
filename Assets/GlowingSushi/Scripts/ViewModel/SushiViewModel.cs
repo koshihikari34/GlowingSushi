@@ -30,6 +30,9 @@ namespace GlowingSushi.ViewModel
         /// <summary>発光色(所属する群れの色。生成時に固定)</summary>
         public Color GlowColor { get; }
 
+        /// <summary>発光するかどうか(表面ふるまいの寿司はfalse。Viewが発光と軌跡を無効化する)</summary>
+        public bool IsGlowing { get; }
+
         // ---- 以下はBoidシミュレーション用の非リアクティブな内部状態 ----
 
         /// <summary>現在速度(毎フレーム更新されるためリアクティブにしない)</summary>
@@ -48,12 +51,20 @@ namespace GlowingSushi.ViewModel
         public Vector3 FleeFrom;
 
         /// <param name="canApproach">trueの場合のみ、時々カメラへ接近する(接近専用個体)</param>
-        public SushiViewModel(SushiBehaviorSettings settings, System.Random random, SushiSpawnData spawnData, Color glowColor, bool canApproach)
+        /// <param name="isGlowing">発光・軌跡パーティクルを有効にするか(表面ふるまいはfalse)</param>
+        public SushiViewModel(
+            SushiBehaviorSettings settings,
+            System.Random random,
+            SushiSpawnData spawnData,
+            Color glowColor,
+            bool canApproach,
+            bool isGlowing = true)
         {
             this.settings = settings;
             this.random = random;
             this.canApproach = canApproach;
             GlowColor = glowColor;
+            IsGlowing = isGlowing;
 
             Position = new ReactiveProperty<Vector3>(spawnData.Position);
             Rotation = new ReactiveProperty<Quaternion>(
