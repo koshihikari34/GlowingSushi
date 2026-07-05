@@ -108,3 +108,7 @@ InitTestScene*.unity*
 # Immersal開発者トークン(秘密情報のためコミットしない)
 Assets/GlowingSushi/Resources/ImmersalToken.txt
 Assets/GlowingSushi/Resources/ImmersalToken.txt.meta
+
+# Immersalマップデータ(点群・メタデータにスキャン場所のGPS座標を含むためコミットしない)
+/Assets/Map Data/
+/Assets/Map Data.meta
