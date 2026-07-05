@@ -18,6 +18,7 @@ namespace GlowingSushi.Root
         readonly ArPlacementViewModel placement;
         readonly AquariumViewModel aquarium;
         readonly SurfaceSpotsViewModel surfaceSpots;
+        readonly StatusViewModel status;
         readonly IObjectResolver resolver;
 
         public GlowingSushiEntryPoint(
@@ -26,6 +27,7 @@ namespace GlowingSushi.Root
             ArPlacementViewModel placement,
             AquariumViewModel aquarium,
             SurfaceSpotsViewModel surfaceSpots,
+            StatusViewModel status,
             IObjectResolver resolver)
         {
             this.touchInput = touchInput;
@@ -33,6 +35,7 @@ namespace GlowingSushi.Root
             this.placement = placement;
             this.aquarium = aquarium;
             this.surfaceSpots = surfaceSpots;
+            this.status = status;
             this.resolver = resolver;
         }
 
@@ -51,6 +54,7 @@ namespace GlowingSushi.Root
             if (resolver.TryResolve<VpsLocalizationService>(out var vpsLocalization))
             {
                 vpsLocalization.Initialize();
+                status.AttachVps(vpsLocalization);
             }
         }
 

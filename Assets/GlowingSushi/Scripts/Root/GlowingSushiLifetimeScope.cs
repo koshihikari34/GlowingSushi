@@ -54,12 +54,14 @@ namespace GlowingSushi.Root
             builder.Register<AquariumViewModel>(Lifetime.Singleton);
             builder.Register<SurfaceSpotsViewModel>(Lifetime.Singleton);
             builder.Register<ArPlacementViewModel>(Lifetime.Singleton);
+            builder.Register<StatusViewModel>(Lifetime.Singleton);
 
             // View層(シーン内のコンポーネントへ注入)
             builder.RegisterComponentInHierarchy<AquariumView>();
             builder.RegisterComponentInHierarchy<TouchEffectView>();
             builder.RegisterComponentInHierarchy<SurfaceSpotsView>();
             builder.RegisterComponentInHierarchy<BattleEffectView>();
+            builder.RegisterComponentInHierarchy<StatusHudView>();
 
             // VPS(Immersal)関連。Localizer未設定のシーンではVPS機能を丸ごと無効にする
             if (immersalLocalizer != null)

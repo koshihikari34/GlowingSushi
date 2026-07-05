@@ -629,6 +629,9 @@ namespace GlowingSushi.Editor
             SetupSurfaceSpotsView(prefabs);
             SetupBattleEffectView();
 
+            // --- 状態HUD(現地検証用のデバッグ表示) ---
+            SetupStatusHud();
+
             // --- DIスコープ ---
             var scope = Object.FindFirstObjectByType<GlowingSushiLifetimeScope>();
             if (scope == null)
@@ -729,6 +732,48 @@ namespace GlowingSushi.Editor
                 soundProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(TouchSoundPath);
                 effectSo.ApplyModifiedPropertiesWithoutUndo();
             }
+        }
+
+        /// <summary>状態HUD(Canvas+Text)をシーンへ構築する</summary>
+        static void SetupStatusHud()
+        {
+            if (Object.FindFirstObjectByType<StatusHudView>() != null) return;
+
+            var canvasGo = new GameObject("StatusHud");
+            var canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvasGo.AddComponent<UnityEngine.UI.CanvasScaler>().uiScaleMode =
+                UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            var hud = canvasGo.AddComponent<StatusHudView>();
+
+            // 左上に半透明背景+テキスト
+            var panelGo = new GameObject("Panel");
+            panelGo.transform.SetParent(canvasGo.transform, false);
+            var panelImage = panelGo.AddComponent<UnityEngine.UI.Image>();
+            panelImage.color = new Color(0f, 0f, 0f, 0.5f);
+            var panelRect = panelGo.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0f, 1f);
+            panelRect.anchorMax = new Vector2(0f, 1f);
+            panelRect.pivot = new Vector2(0f, 1f);
+            panelRect.anchoredPosition = new Vector2(10f, -50f);
+            panelRect.sizeDelta = new Vector2(560f, 150f);
+
+            var textGo = new GameObject("StatusText");
+            textGo.transform.SetParent(panelGo.transform, false);
+            var text = textGo.AddComponent<UnityEngine.UI.Text>();
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.fontSize = 26;
+            text.color = Color.white;
+            text.alignment = TextAnchor.UpperLeft;
+            var textRect = textGo.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = new Vector2(10f, 5f);
+            textRect.offsetMax = new Vector2(-10f, -5f);
+
+            var so = new SerializedObject(hud);
+            so.FindProperty("statusText").objectReferenceValue = text;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         /// <summary>表面ふるまいスポットViewをシーンへ構築し、寿司プレハブ配列を結線する</summary>
