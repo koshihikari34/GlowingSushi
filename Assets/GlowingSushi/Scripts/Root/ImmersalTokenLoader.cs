@@ -19,6 +19,10 @@ namespace GlowingSushi.Root
         [Tooltip("トークンを設定するImmersalSDKコンポーネント")]
         ImmersalSDK immersalSdk;
 
+        [SerializeField]
+        [Tooltip("エディタ(XR Simulation)ではVPSを無効化する。SimulationはCPUカメラ画像を提供せず画像取得エラーが出続けるため")]
+        bool disableInEditor = true;
+
         void Awake()
         {
             if (immersalSdk == null)
@@ -26,6 +30,14 @@ namespace GlowingSushi.Root
                 Debug.LogError("[GlowingSushi] ImmersalSDKが未設定のためトークンを設定できません");
                 return;
             }
+
+#if UNITY_EDITOR
+            if (disableInEditor)
+            {
+                immersalSdk.gameObject.SetActive(false);
+                return;
+            }
+#endif
 
             var tokenAsset = Resources.Load<TextAsset>(TokenResourceName);
             if (tokenAsset == null || string.IsNullOrWhiteSpace(tokenAsset.text))
