@@ -40,6 +40,8 @@ namespace GlowingSushi.ViewModel
         {
             planeSubscription ??= planeDetection.FirstPlaneDetected.Subscribe(pose =>
             {
+                if (mode == PlacementMode.None) return; // VPSアンカーのみで配置するモード
+
                 if (mode is PlacementMode.Aquarium or PlacementMode.Both)
                 {
                     aquarium.Spawn(pose);

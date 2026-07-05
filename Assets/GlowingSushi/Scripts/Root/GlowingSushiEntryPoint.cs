@@ -1,6 +1,7 @@
 using GlowingSushi.Service;
 using GlowingSushi.ViewModel;
 using UnityEngine;
+using VContainer;
 using VContainer.Unity;
 
 namespace GlowingSushi.Root
@@ -17,19 +18,22 @@ namespace GlowingSushi.Root
         readonly ArPlacementViewModel placement;
         readonly AquariumViewModel aquarium;
         readonly SurfaceSpotsViewModel surfaceSpots;
+        readonly IObjectResolver resolver;
 
         public GlowingSushiEntryPoint(
             TouchInputService touchInput,
             ArPlaneDetectionService planeDetection,
             ArPlacementViewModel placement,
             AquariumViewModel aquarium,
-            SurfaceSpotsViewModel surfaceSpots)
+            SurfaceSpotsViewModel surfaceSpots,
+            IObjectResolver resolver)
         {
             this.touchInput = touchInput;
             this.planeDetection = planeDetection;
             this.placement = placement;
             this.aquarium = aquarium;
             this.surfaceSpots = surfaceSpots;
+            this.resolver = resolver;
         }
 
         public void Start()
@@ -38,6 +42,16 @@ namespace GlowingSushi.Root
             touchInput.Initialize();
             placement.Initialize();
             planeDetection.Initialize();
+
+            // VPS(Immersal)はLocalizer設定済みのシーンでのみ登録されているため、任意解決で初期化する
+            if (resolver.TryResolve<VpsPlacementViewModel>(out var vpsPlacement))
+            {
+                vpsPlacement.Initialize();
+            }
+            if (resolver.TryResolve<VpsLocalizationService>(out var vpsLocalization))
+            {
+                vpsLocalization.Initialize();
+            }
         }
 
         public void Tick()

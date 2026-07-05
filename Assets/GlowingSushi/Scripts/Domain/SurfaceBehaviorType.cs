@@ -31,5 +31,8 @@ namespace GlowingSushi.Domain
 
         /// <summary>両方</summary>
         Both,
+
+        /// <summary>平面検出では何も出さない(VPSアンカーのみで配置する現地ビルド用)</summary>
+        None,
     }
 }
