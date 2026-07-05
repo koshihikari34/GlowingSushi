@@ -125,6 +125,50 @@ namespace GlowingSushi.Domain
         [Tooltip("逃走を続ける時間(秒)")]
         public float fleeDuration = 3f;
 
+        [Header("表面ふるまい(共通)")]
+        [Tooltip("1スポットのエリア半径(メートル)")]
+        public float spotRadius = 0.25f;
+
+        [Tooltip("1スポットあたりの寿司の数")]
+        public int membersPerSpot = 3;
+
+        [Tooltip("表面から寿司の中心までの高さ(メートル)")]
+        public float surfaceOffset = 0.035f;
+
+        [Header("転がり(Rolling)")]
+        [Tooltip("転がる速さ(m/s)")]
+        public float rollSpeed = 0.15f;
+
+        [Tooltip("接地半径。小さいほどよく回転する(メートル)")]
+        public float rollContactRadius = 0.04f;
+
+        [Header("昼寝(Napping)")]
+        [Tooltip("呼吸のような上下の周期(秒)")]
+        public float napBreathPeriod = 3.5f;
+
+        [Tooltip("呼吸の上下幅(メートル)")]
+        public float napBreathAmplitude = 0.004f;
+
+        [Header("散歩(Strolling)")]
+        [Tooltip("歩く速さ(m/s)")]
+        public float strollSpeed = 0.05f;
+
+        [Tooltip("進行方向の変わりやすさ(rad/s)")]
+        public float strollTurnRate = 1.2f;
+
+        [Header("ベイブレード(Battle)")]
+        [Tooltip("スピンの回転速度(度/秒)")]
+        public float spinSpeed = 720f;
+
+        [Tooltip("移動の速さ(m/s)")]
+        public float battleMoveSpeed = 0.25f;
+
+        [Tooltip("衝突判定の半径(メートル)")]
+        public float battleHitRadius = 0.08f;
+
+        [Tooltip("同じペアの連続衝突を無視する時間(秒)")]
+        public float battleClashCooldown = 0.3f;
+
         [Header("発光")]
         [Tooltip("発光パルスの周期(秒)")]
         public float glowPulsePeriod = 2f;
