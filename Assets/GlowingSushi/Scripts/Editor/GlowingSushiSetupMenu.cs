@@ -102,17 +102,23 @@ namespace GlowingSushi.Editor
         }
 
         /// <summary>
-        /// 軌跡・バースト用の加算合成パーティクルマテリアルを生成する。
+        /// 軌跡・バースト用の加算合成パーティクルマテリアルを生成・再設定する。
         /// 色はParticleSystem側のstartColor(群れの発光色)で乗算される。
+        /// startColor(頂点カラー)はLDRにクランプされるため、Bloomで光らせるための
+        /// HDR強度はマテリアルのBaseColor側で与える。
         /// </summary>
         static Material CreateGlowParticleMaterial()
         {
-            var existing = AssetDatabase.LoadAssetAtPath<Material>(ParticleMaterialPath);
-            if (existing != null) return existing;
+            var material = AssetDatabase.LoadAssetAtPath<Material>(ParticleMaterialPath);
+            var isNew = material == null;
+            if (isNew)
+            {
+                material = new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));
+            }
 
-            var material = new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));
             material.SetTexture("_BaseMap", AssetDatabase.GetBuiltinExtraResource<Texture2D>("Default-Particle.psd"));
-            material.SetColor("_BaseColor", Color.white);
+            // HDR強度(×2.5)でBloomの閾値を超えさせ、粒子を発光させる
+            material.SetColor("_BaseColor", Color.white * 2.5f);
             // 加算合成(透明サーフェス+SrcAlpha/One)で発光粒子らしく見せる
             material.SetFloat("_Surface", 1f);
             material.SetFloat("_Blend", 2f);
@@ -123,7 +129,14 @@ namespace GlowingSushi.Editor
             material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
 
-            AssetDatabase.CreateAsset(material, ParticleMaterialPath);
+            if (isNew)
+            {
+                AssetDatabase.CreateAsset(material, ParticleMaterialPath);
+            }
+            else
+            {
+                EditorUtility.SetDirty(material);
+            }
             return material;
         }
 
@@ -219,17 +232,17 @@ namespace GlowingSushi.Editor
         {
             var main = ps.main;
             main.simulationSpace = ParticleSystemSimulationSpace.World; // 粒子をその場に残す
-            main.startLifetime = new ParticleSystem.MinMaxCurve(1.0f, 2.0f);
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f, 2.5f);
             // わずかな初速でゆっくり漂わせる(一列の点線にならないように)
             main.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.1f);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.008f, 0.02f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.01f, 0.025f);
             main.gravityModifier = 0f;
-            main.maxParticles = 1000;
+            main.maxParticles = 1500;
 
             // 移動距離に応じて放出することで「軌跡」になる
             var emission = ps.emission;
             emission.rateOverTime = 0f;
-            emission.rateOverDistance = 100f;
+            emission.rateOverDistance = 150f;
 
             // 球状に散らして放出し、軌跡に幅を持たせる
             var shape = ps.shape;
