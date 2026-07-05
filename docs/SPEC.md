@@ -61,8 +61,23 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 
 ### 3.6 サウンド
 - タッチ命中時の効果音(水泡ポップ音、3D音源で命中位置から再生)
+- ベイブレード衝突時の効果音(金属的な「キン」音、強度に応じた音量、3D音源)
 - BGM: 環境音パッド風のループ(Am-F-C-G、約24秒、合成生成)を2Dで常時再生。音源は `Assets/GlowingSushi/Audio/AquariumBgm.wav` を差し替えるだけで変更可能
 - BGMは状態を持たない単純再生のためViewModelを介さない(シーン直置きの `BgmPlayer` AudioSource)
+
+### 3.7 場所固有の表面ふるまい(Phase 2)
+実在の物体(自販機・ベンチ・テーブル)の表面に紐づいた寿司のふるまい。**寿司本体は発光しない**(Emission消灯・軌跡パーティクル無効)。
+
+| 種別 | ふるまい | 想定場所(Map ID) |
+|---|---|---|
+| Rolling | 円形エリア内を直進し縁で跳ね返りながら、移動量に応じてゴロゴロ転がる | 自販機の天面(148694) |
+| Napping | 横倒しで寝て、呼吸のようにゆっくり上下する | ベンチ(148692) |
+| Strolling | 進行方向を揺らしながらゆっくり歩き回る(よちよち揺れ付き) | ベンチ(148692) |
+| Battle | ベイブレードのように高速スピンしながら動き回り、ぶつかると弾性衝突で弾かれ、**火花(HDR発光)**と衝突音が出る | テーブル(148693) |
+
+- 火花・衝突音は寿司本体と違い演出として発光してよい(GlowParticle.matを流用)
+- `PlacementMode`(Aquarium / SurfaceSpotsDemo / Both)で平面検出時に出すコンテンツを切り替えられる(2aの検証は平面上のデモスポット4種で行う)
+- Phase 2bでは、Immersalローカライズ成功後にVPSアンカーの位置・種別からスポットを構築する(`SurfaceSpotsViewModel.AddSpot`)
 
 ## 4. アーキテクチャ設計(MVVM + VContainer + R3)
 
@@ -106,6 +121,9 @@ Assets/GlowingSushi/Scripts/
 - `SushiSchoolViewModel` : 1つの群れ。`SchoolConfig`(アンカー・色・個体数・軌道有無/位相/方向・接近可否)を受けて生成され、`ObservableCollections.R3` で個体群を管理して毎フレーム Boid 計算+軌道アトラクタ追従+バンク回転を駆動する。DI直登録はせず `AquariumViewModel` が生成する。タッチ用に `FindHit(Ray)` / `FleeFrom(個体, 位置)` を公開
 - `SchoolConfig` : 群れ1つ分の生成設定(readonly struct)
 - `TouchHitInfo` : タッチ成功イベントデータ(命中位置+群れの発光色)
+- `SurfaceSpotsViewModel` : 表面ふるまいスポット群の管理。デモ配置(2a)/`AddSpot`(2b)、全スポットのTick駆動、Battle衝突イベント `Observable<BattleClashInfo>` の集約
+- `SurfaceSpotViewModel` : スポット1つ分。表面ローカル2D座標系で転がり/昼寝/散歩/ベイブレードの各運動を駆動し、ワールド座標へ変換して個体のReactivePropertyに反映する
+- `BattleClashInfo` : ベイブレード衝突イベントデータ(位置+強度)
 - `ArPlacementViewModel` : AR平面検出状態を公開し、検出時に水族館(複数群れ)の出現をトリガーする
 - `VpsPlacementViewModel` : Immersal ローカライズ状態を公開し、成功時に対応するアンカーの群れ出現をトリガーする(Phase 2)
 
@@ -120,7 +138,10 @@ Assets/GlowingSushi/Scripts/
 - `SushiView` : `Position` / `Rotation` を購読して Transform を更新、`GlowIntensity` を購読して `MaterialPropertyBlock` 経由で Emission を更新(色はViewModelの `GlowColor` × 強度)。軌跡ParticleSystemを群れ色にティント。`State` に応じたアニメーション再生は未実装
 - `AquariumView` : `AquariumViewModel` の群れ一覧と各群れの個体一覧の増減をネスト購読して `SushiView` の生成・破棄を行う。寿司の種類(見た目)はプレハブ配列からランダムに選ぶ(見た目の多様性はView層の関心事とする)
 - `TouchEffectView` : `TouchHit` を購読し、命中位置でバーストパーティクル(群れ色ティント)と効果音を再生する
-- `VpsAnchorView` : `XRSpace` 配下に配置する、街中/空中それぞれのアンカーの見た目上の置き場所(Phase 2)
+- `SurfaceSpotsView` : `SurfaceSpotsViewModel` のスポット・個体の増減をネスト購読して `SushiView` を生成・破棄する
+- `BattleEffectView` : `BattleClash` を購読し、衝突位置で火花パーティクル(線状スパーク、HDR発光)と衝突音を強度連動で再生する
+- `SushiView` は `IsGlowing=false` の個体に対してEmission消灯+軌跡パーティクル無効化を行う
+- `VpsAnchorView` : `XRSpace` 配下に配置する、街中/空中それぞれのアンカーの見た目上の置き場所(Phase 2b)
 
 ### 4.7 Root 層(コンポジションルート) — `namespace GlowingSushi.Root`
 - `GlowingSushiLifetimeScope` : VContainerの `LifetimeScope`。全レイヤーの依存関係をここで一括登録する。シーン上の参照(挙動設定アセット・`ARPlaneManager`・ARカメラ)をSerializeFieldで受けてDIに渡す
@@ -160,6 +181,11 @@ Assets/GlowingSushi/Scripts/
 | 速度 | 通常 / 最低 / 逃走 / 接近 / 操舵力上限 / 垂直減衰 | 0.45 / 0.2 / 1.5 / 0.8 m/s / 2.0 / 0.6 |
 | 接近専用個体 | 数 / 色 / 判定間隔 / 確率 / 最大時間 / 停止距離 | 2匹 / 金色 / 4s / 0.5 / 6s / 0.5m |
 | タッチ・逃走 | ヒット半径 / 伝播半径 / 逃走時間 | 0.15m / 0.4m / 3s |
+| 表面ふるまい共通 | スポット半径 / 個体数 / 表面オフセット | 0.25m / 3匹 / 0.035m |
+| 転がり | 速さ / 接地半径 | 0.15m/s / 0.04m |
+| 昼寝 | 呼吸周期 / 上下幅 | 3.5s / 0.004m |
+| 散歩 | 速さ / 方向の変わりやすさ | 0.05m/s / 1.2rad/s |
+| ベイブレード | スピン / 移動速さ / 衝突半径 / クールダウン | 720°/s / 0.25m/s / 0.08m / 0.3s |
 | 発光 | パルス周期 / 最小 / 最大 / 逃走時係数 | 2s / 0.35 / 1.5 / 1.5 |
 | 軌跡粒子 | 放出密度 / 寿命 / サイズ / 拡散半径 / 初速 / マテリアルHDR強度 | 150個/m / 1.5〜2.5s / 0.01〜0.025m / 0.04m / 0.02〜0.1m/s / ×2.5 |
 
