@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using GlowingSushi.ViewModel;
 using ObservableCollections;
@@ -86,7 +87,7 @@ namespace GlowingSushi.View
         {
             if (views.ContainsKey(sushi)) return;
             // 寿司の種類(見た目)はランダムに選ぶ
-            var prefab = sushiPrefabs[Random.Range(0, sushiPrefabs.Length)];
+            var prefab = sushiPrefabs[UnityEngine.Random.Range(0, sushiPrefabs.Length)];
             var view = Instantiate(prefab, sushi.Position.Value, sushi.Rotation.Value, transform);
             view.Bind(sushi);
             views.Add(sushi, view);
