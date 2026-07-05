@@ -40,12 +40,13 @@ namespace GlowingSushi.Root
             builder.Register<TouchInputService>(Lifetime.Singleton);
             builder.Register<SushiSpawnService>(Lifetime.Singleton);
 
-            // ViewModel層
-            builder.Register<SushiSchoolViewModel>(Lifetime.Singleton);
+            // ViewModel層(SushiSchoolViewModelはAquariumViewModelが生成するため登録しない)
+            builder.Register<AquariumViewModel>(Lifetime.Singleton);
             builder.Register<ArPlacementViewModel>(Lifetime.Singleton);
 
             // View層(シーン内のコンポーネントへ注入)
-            builder.RegisterComponentInHierarchy<SushiSchoolView>();
+            builder.RegisterComponentInHierarchy<AquariumView>();
+            builder.RegisterComponentInHierarchy<TouchEffectView>();
 
             // エントリポイント
             builder.RegisterEntryPoint<GlowingSushiEntryPoint>();

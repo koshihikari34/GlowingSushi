@@ -6,7 +6,8 @@ namespace GlowingSushi.View
 {
     /// <summary>
     /// 寿司1匹分のView。ViewModelのReactivePropertyを購読して
-    /// Transformと発光(Emission)へ反映するだけの受動的なコンポーネント。
+    /// Transform・発光(Emission)・軌跡パーティクルへ反映するだけの受動的なコンポーネント。
+    /// 発光色は所属する群れの色(ViewModelのGlowColor)を使う。
     /// </summary>
     public sealed class SushiView : MonoBehaviour
     {
@@ -17,18 +18,27 @@ namespace GlowingSushi.View
         Renderer bodyRenderer;
 
         [SerializeField]
-        [Tooltip("発光の基本色(GlowIntensityが掛け算される)")]
-        [ColorUsage(false, true)]
-        Color baseEmissionColor = new(1f, 0.6f, 0.2f);
+        [Tooltip("泳いだ軌跡に発光粒子を残すParticleSystem")]
+        ParticleSystem trailParticles;
 
         MaterialPropertyBlock propertyBlock;
+        Color glowColor = Color.white;
 
         /// <summary>
-        /// ViewModelを結び付けて購読を開始する。生成直後にSushiSchoolViewから呼ばれる。
+        /// ViewModelを結び付けて購読を開始する。生成直後にAquariumViewから呼ばれる。
         /// 購読はAddTo(this)でこのGameObjectの破棄と一緒に解除される。
         /// </summary>
         public void Bind(SushiViewModel viewModel)
         {
+            glowColor = viewModel.GlowColor;
+
+            // 軌跡パーティクルを群れの色にティントする
+            if (trailParticles != null)
+            {
+                var main = trailParticles.main;
+                main.startColor = glowColor;
+            }
+
             viewModel.Position
                 .Subscribe(position => transform.position = position)
                 .AddTo(this);
@@ -41,7 +51,7 @@ namespace GlowingSushi.View
                 .Subscribe(ApplyGlow)
                 .AddTo(this);
 
-            // State購読はPhase 1では未使用(状態別アニメーションを入れる際にここへ追加する)
+            // State購読は未使用(状態別アニメーションを入れる際にここへ追加する)
         }
 
         /// <summary>
@@ -51,7 +61,7 @@ namespace GlowingSushi.View
         {
             propertyBlock ??= new MaterialPropertyBlock();
             bodyRenderer.GetPropertyBlock(propertyBlock);
-            propertyBlock.SetColor(EmissionColorId, baseEmissionColor * intensity);
+            propertyBlock.SetColor(EmissionColorId, glowColor * intensity);
             bodyRenderer.SetPropertyBlock(propertyBlock);
         }
     }

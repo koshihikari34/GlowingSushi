@@ -15,18 +15,18 @@ namespace GlowingSushi.Root
         readonly TouchInputService touchInput;
         readonly ArPlaneDetectionService planeDetection;
         readonly ArPlacementViewModel placement;
-        readonly SushiSchoolViewModel school;
+        readonly AquariumViewModel aquarium;
 
         public GlowingSushiEntryPoint(
             TouchInputService touchInput,
             ArPlaneDetectionService planeDetection,
             ArPlacementViewModel placement,
-            SushiSchoolViewModel school)
+            AquariumViewModel aquarium)
         {
             this.touchInput = touchInput;
             this.planeDetection = planeDetection;
             this.placement = placement;
-            this.school = school;
+            this.aquarium = aquarium;
         }
 
         public void Start()
@@ -39,7 +39,7 @@ namespace GlowingSushi.Root
 
         public void Tick()
         {
-            school.Tick(Time.deltaTime);
+            aquarium.Tick(Time.deltaTime);
         }
     }
 }
