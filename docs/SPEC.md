@@ -52,9 +52,13 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 - タッチ命中時は命中位置で発光粒子のバーストエフェクトと効果音(水泡ポップ音)を再生する。エフェクトは命中した群れの色にティントする
 
 ### 3.4 VPS 配置(屋外)
-- Immersal でのローカライズ成功後、`XRSpace` 配下に配置したアンカーポイントに寿司群を出現させる
-- アンカーは地上付近(街中を泳ぐ)と空中(浮遊して泳ぐ)の両方を想定する
-- アンカーの実体は「配置ポイント + そこに紐づく寿司群パラメータ」
+- Immersal でのローカライズ成功後、`XRSpace` 配下に配置したアンカーポイントに寿司を出現させる
+- **マップごとに独立した `XRSpace` を持つ**(1つのXRSpaceに複数マップを入れると座標系が混ざるため)。ローカライズはマップ単位で成功し、その時点でそのマップのアンカーにのみ配置する
+- サーバーローカライズ(`ServerLocalization`)を使用(マップファイルの埋め込み不要、ネットワーク必須)
+- Developer Tokenは `Assets/GlowingSushi/Resources/ImmersalToken.txt`(Git管理外)から `ImmersalTokenLoader` が実行時に読み込み、`ImmersalSDK` のAwake前に設定する
+- 使用マップ: bench(148692: 昼寝+散歩) / table(148693: ベイブレード) / vendingmachine(148694: 転がり)
+- アンカー(`VpsAnchorView`)の位置合わせは、XRMapインスペクタのDownloadで点群(Visualization)を取得し、点群を目印にエディタで手動調整する(Y軸=面の法線)
+- 既知の制約: スポットは初回ローカライズ時点のアンカー姿勢で固定される(その後のローカライズ精度向上には追従しない)
 
 ### 3.5 フォールバック
 - VPS マップが無い、またはローカライズ失敗時は AR Foundation の平面検出のみでローカルに寿司群を出現させ、発光・群泳・近接逃走インタラクションは同様に動作させる
@@ -124,6 +128,7 @@ Assets/GlowingSushi/Scripts/
 - `SurfaceSpotsViewModel` : 表面ふるまいスポット群の管理。デモ配置(2a)/`AddSpot`(2b)、全スポットのTick駆動、Battle衝突イベント `Observable<BattleClashInfo>` の集約
 - `SurfaceSpotViewModel` : スポット1つ分。表面ローカル2D座標系で転がり/昼寝/散歩/ベイブレードの各運動を駆動し、ワールド座標へ変換して個体のReactivePropertyに反映する
 - `BattleClashInfo` : ベイブレード衝突イベントデータ(位置+強度)
+- `VpsPlacementViewModel` : `VpsAnchorView` から登録されたアンカーを保持し、対応マップのローカライズ成功時(マップ単位・1回のみ)にアンカー姿勢へ表面ふるまいスポットを配置する
 - `ArPlacementViewModel` : AR平面検出状態を公開し、検出時に水族館(複数群れ)の出現をトリガーする
 - `VpsPlacementViewModel` : Immersal ローカライズ状態を公開し、成功時に対応するアンカーの群れ出現をトリガーする(Phase 2)
 
@@ -132,7 +137,7 @@ Assets/GlowingSushi/Scripts/
 - `TouchInputService` : Input System(EnhancedTouch)のタッチ入力を `Observable<Ray>` として公開(エディタではTouchSimulationでマウスをタッチ扱い)
 - `ArPlaneDetectionService` : `ARPlaneManager.trackablesChanged` を Observable にラップ(Phase 1では初回検出平面のみ通知)
 - `ICameraPoseService` / `CameraPoseService` : ARカメラ(プレイヤー視点)の位置・回転を公開。接近行動でViewModelが参照する
-- `VpsLocalizationService` : Immersal `Localizer` の UnityEvent を R3 の Observable に変換(Phase 2)
+- `VpsLocalizationService` : Immersal `Localizer` の UnityEvent(成功マップID配列・初回成功)を R3 の Observable / ReactiveProperty に変換
 
 ### 4.6 View 層(MonoBehaviour、`[Inject]` で ViewModel を受け取り購読のみ行う) — `namespace GlowingSushi.View`
 - `SushiView` : `Position` / `Rotation` を購読して Transform を更新、`GlowIntensity` を購読して `MaterialPropertyBlock` 経由で Emission を更新(色はViewModelの `GlowColor` × 強度)。軌跡ParticleSystemを群れ色にティント。`State` に応じたアニメーション再生は未実装
@@ -141,31 +146,35 @@ Assets/GlowingSushi/Scripts/
 - `SurfaceSpotsView` : `SurfaceSpotsViewModel` のスポット・個体の増減をネスト購読して `SushiView` を生成・破棄する
 - `BattleEffectView` : `BattleClash` を購読し、衝突位置で火花パーティクル(線状スパーク、HDR発光)と衝突音を強度連動で再生する
 - `SushiView` は `IsGlowing=false` の個体に対してEmission消灯+軌跡パーティクル無効化を行う
-- `VpsAnchorView` : `XRSpace` 配下に配置する、街中/空中それぞれのアンカーの見た目上の置き場所(Phase 2b)
+- `VpsAnchorView` : マップごとの `XRSpace` 配下に置く配置ポイント。マップIDとふるまい種別を持ち、起動時に `VpsPlacementViewModel` へ自己登録する。エディタ配置用のギズモ表示付き
 
 ### 4.7 Root 層(コンポジションルート) — `namespace GlowingSushi.Root`
-- `GlowingSushiLifetimeScope` : VContainerの `LifetimeScope`。全レイヤーの依存関係をここで一括登録する。シーン上の参照(挙動設定アセット・`ARPlaneManager`・ARカメラ)をSerializeFieldで受けてDIに渡す
-- `GlowingSushiEntryPoint` : `IStartable`(起動時に各サービス・ViewModelのInitializeを呼ぶ)/ `ITickable`(毎フレーム `SushiSchoolViewModel.Tick(Time.deltaTime)` を駆動)
+- `GlowingSushiLifetimeScope` : VContainerの `LifetimeScope`。全レイヤーの依存関係をここで一括登録する。シーン上の参照(挙動設定アセット・`ARPlaneManager`・ARカメラ・Immersal `Localizer`)をSerializeFieldで受けてDIに渡す。`Localizer` が設定されたシーンでのみVPS機能(Service/ViewModel)を登録し、`VpsAnchorView` への注入は `autoInjectGameObjects` にXRSpaceを登録して行う
+- `GlowingSushiEntryPoint` : `IStartable`(起動時に各サービス・ViewModelのInitializeを呼ぶ。VPS系は任意解決で初期化)/ `ITickable`(毎フレーム水族館と表面スポットのTickを駆動)
+- `ImmersalTokenLoader` : Git管理外のResourcesからDeveloper Tokenを読み込み、`ImmersalSDK` のAwake前(DefaultExecutionOrder -5000)に設定するブートストラップ
 - ViewModel・ServiceはVContainer型に依存しない。VContainerと全レイヤーを参照してよいのはこのRoot層のみ
 
 ### 4.8 Editor 層(エディタ専用ツール) — `namespace GlowingSushi.Editor`
-- `GlowingSushiSetupMenu` : `GlowingSushi/Setup` メニュー。①マテリアル/プレハブ/設定アセット生成、②シーンセットアップ(ARリグ・DIスコープ構築)、③プロジェクト設定(`ARBackgroundRendererFeature` 追加・iOSカメラ権限)。シーンやプレハブのYAML手書きを避け、参照結線を確実にするためエディタスクリプトで生成する
+- `GlowingSushiSetupMenu` : `GlowingSushi/Setup` メニュー。①マテリアル/プレハブ/設定/効果音/BGM生成、②シーンセットアップ(ARリグ・DIスコープ・各View構築)、③プロジェクト設定(`ARBackgroundRendererFeature` 追加・iOSカメラ権限)、④挙動パラメータの推奨値一括適用、⑤VPSセットアップ(ImmersalSDKプレハブ・マップごとのXRSpace+XRMap+アンカー構築)。シーンやプレハブのYAML手書きを避け、参照結線を確実にするためエディタスクリプトで生成する
 - 寿司モデル `sushi02.fbx` は7貫の盛り合わせ(gari/Salmon_/ebi1/ebi2/negitoro/engawa/maguro)のため、①でガリを除く6貫を1貫ずつ個別プレハブ(`Sushi_maguro.prefab` 等)に分解する。各プレハブはメッシュ中心を原点へ合わせ、最長辺を約0.15mに正規化する
 
-## 5. VPS 運用における未確定事項
+## 5. VPS 運用メモ
 
-- Immersal の App ID・スキャン済み Map ID は**現時点で未取得**。そのため実機での屋外ローカライズ検証は今回のフェーズでは行えない
-- `VpsLocalizationService` はマップ未接続でもアプリがビルド・動作できるよう、フォールバック(平面検出のみでの動作)を仕様として明記する
+- Developer Token・Map ID(bench 148692 / table 148693 / vendingmachine 148694)は取得済み。トークンは `Assets/GlowingSushi/Resources/ImmersalToken.txt`(Git管理外)に保管
+- VPSはXR Simulationでは検証できないため、現地での実機確認が必須
+- `PlacementMode` でフォールバックを制御: マップが読めない環境では平面検出ベースの水族館/デモスポットで動作できる
 
 ## 6. フェーズ分け
 
-- **Phase 1** : ローカル AR 完結(発光 + 群泳 + 接近/逃走インタラクション)。エディタ・実機で検証可能
-- **Phase 2** : Immersal VPS による街中/空中への固定配置。Map ID 取得後に接続・検証
+- **Phase 1(完了)** : ローカル AR 水族館(発光 + 群泳 + 接近/逃走 + タッチ演出 + BGM)
+- **Phase 2a(完了)** : 表面ふるまい(転がり/昼寝/散歩/ベイブレード)のローカル実装。平面検出したデモスポットで検証
+- **Phase 2b(実装済み・現地検証待ち)** : Immersal VPSで実在の場所(ベンチ/テーブル/自販機)へ配置
 
 ## 7. 今後の確認事項
 
-- VPS アンカー(地上/空中)の配置数・配置方法(エディタでの手動配置か、座標オフセット設定による自動配置か)
-- Immersal アカウント・App ID 取得のスケジュール
+- 各アンカーの正確な位置合わせ(XRMapの点群ダウンロード→エディタで手動調整)
+- 現地でのローカライズ精度・スポットの見え方の検証
+- iOS実機でのパフォーマンス(粒子数)確認
 
 ### 7.1 Phase 1 で採用した挙動パラメータ(暫定)
 
