@@ -136,8 +136,11 @@ namespace GlowingSushi.Domain
         public float surfaceOffset = 0.035f;
 
         [Header("転がり(Rolling)")]
-        [Tooltip("転がる速さ(m/s)")]
-        public float rollSpeed = 0.15f;
+        [Tooltip("左右往復の振れ幅(メートル)。子供がおもちゃを転がすようなコロコロの幅")]
+        public float rollAmplitude = 0.12f;
+
+        [Tooltip("左右往復の周期(秒)")]
+        public float rollPeriod = 2.0f;
 
         [Tooltip("接地半径。小さいほどよく回転する(メートル)")]
         public float rollContactRadius = 0.04f;

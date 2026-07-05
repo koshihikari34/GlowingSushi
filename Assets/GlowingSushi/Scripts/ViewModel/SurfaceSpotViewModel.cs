@@ -23,6 +23,10 @@ namespace GlowingSushi.ViewModel
         Vector3 right;      // 表面ローカルX軸
         Vector3 forward;    // 表面ローカルY軸
 
+        // VPS補正の平滑追従用の目標姿勢(瞬間移動に見えないよう指数補間で近づける)
+        Pose targetSurfacePose;
+        bool hasPendingPoseUpdate;
+
         // 個体ごとのローカル状態(Sushisと同じ並び順)
         readonly List<Vector2> positions2D = new();
         readonly List<Vector2> velocities2D = new();
@@ -63,15 +67,38 @@ namespace GlowingSushi.ViewModel
         }
 
         /// <summary>
-        /// スポットの表面姿勢を更新する。VPSのローカライズが繰り返し成功して
+        /// スポットの表面姿勢の目標値を更新する。VPSのローカライズが繰り返し成功して
         /// XRSpaceの位置が補正された際、スポットも実世界へ追従させるために使う。
-        /// 個体のローカル2D座標は保持されるため、群れごと新しい姿勢へ移動する。
+        /// 即時反映すると数cm〜数十cmの補正のたびに瞬間移動して見えるため、
+        /// Tick内で滑らかに補間して近づける。
         /// </summary>
         public void UpdateSurfacePose(Pose newPose)
         {
-            surfacePose = newPose;
-            right = newPose.rotation * Vector3.right;
-            forward = newPose.rotation * Vector3.forward;
+            targetSurfacePose = newPose;
+            hasPendingPoseUpdate = true;
+        }
+
+        /// <summary>目標姿勢へ滑らかに補間する(約0.3秒で大半を移動)</summary>
+        void SmoothFollowTargetPose(float deltaTime)
+        {
+            if (!hasPendingPoseUpdate) return;
+
+            var t = 1f - Mathf.Exp(-3f * deltaTime);
+            var position = Vector3.Lerp(surfacePose.position, targetSurfacePose.position, t);
+            var rotation = Quaternion.Slerp(surfacePose.rotation, targetSurfacePose.rotation, t);
+
+            // 十分近づいたらスナップして補間終了
+            if ((position - targetSurfacePose.position).sqrMagnitude < 1e-6f
+                && Quaternion.Angle(rotation, targetSurfacePose.rotation) < 0.1f)
+            {
+                position = targetSurfacePose.position;
+                rotation = targetSurfacePose.rotation;
+                hasPendingPoseUpdate = false;
+            }
+
+            surfacePose = new Pose(position, rotation);
+            right = rotation * Vector3.right;
+            forward = rotation * Vector3.forward;
         }
 
         /// <summary>スポットのエリア内に個体をランダム配置する</summary>
@@ -79,16 +106,18 @@ namespace GlowingSushi.ViewModel
         {
             for (var i = 0; i < settings.membersPerSpot; i++)
             {
-                // エリア内の重ならない位置(簡易: ランダム+半径の半分以内)
+                // エリア内の重ならない位置(簡易: ランダム配置。転がりは往復の振れ幅ぶん内側に収める)
                 var angle = (float)(random.NextDouble() * Math.PI * 2.0);
-                var distance = (float)random.NextDouble() * settings.spotRadius * 0.6f;
+                var maxDistance = BehaviorType == SurfaceBehaviorType.Rolling
+                    ? Mathf.Max(0.05f, settings.spotRadius - settings.rollAmplitude)
+                    : settings.spotRadius * 0.6f;
+                var distance = (float)random.NextDouble() * maxDistance;
                 var position2D = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * distance;
 
                 var heading = (float)(random.NextDouble() * Math.PI * 2.0);
                 var velocity2D = new Vector2(Mathf.Cos(heading), Mathf.Sin(heading));
                 velocity2D *= BehaviorType switch
                 {
-                    SurfaceBehaviorType.Rolling => settings.rollSpeed,
                     SurfaceBehaviorType.Battle => settings.battleMoveSpeed,
                     _ => 0f,
                 };
@@ -139,35 +168,39 @@ namespace GlowingSushi.ViewModel
         public void Tick(float deltaTime)
         {
             elapsedTime += deltaTime;
+            SmoothFollowTargetPose(deltaTime);
             switch (BehaviorType)
             {
-                case SurfaceBehaviorType.Rolling: TickRolling(deltaTime); break;
+                case SurfaceBehaviorType.Rolling: TickRolling(); break;
                 case SurfaceBehaviorType.Napping: TickNapping(); break;
                 case SurfaceBehaviorType.Strolling: TickStrolling(deltaTime); break;
                 case SurfaceBehaviorType.Battle: TickBattle(deltaTime); break;
             }
         }
 
-        /// <summary>転がり: 直進しながら縁で跳ね返り、移動量に応じて回転する</summary>
-        void TickRolling(float deltaTime)
+        /// <summary>
+        /// 転がり: 子供がおもちゃを転がすように、固定の向き(長軸)を保ったまま
+        /// スポーン位置を中心に左右へ正弦波で往復し、移動量に同期して長軸まわりにロールする。
+        /// </summary>
+        void TickRolling()
         {
             for (var i = 0; i < Sushis.Count; i++)
             {
-                var position = positions2D[i];
-                var velocity = velocities2D[i];
-
-                position += velocity * deltaTime;
-                SurfaceMotionMath.ReflectInsideCircle(ref position, ref velocity, settings.spotRadius);
-
-                positions2D[i] = position;
-                velocities2D[i] = velocity;
-
                 var sushi = Sushis[i];
-                var worldVelocity = right * velocity.x + forward * velocity.y;
-                sushi.Position.Value = ToWorld(position);
-                sushi.Rotation.Value =
-                    SurfaceMotionMath.RollDelta(surfacePose.up, worldVelocity, settings.rollContactRadius, deltaTime)
-                    * sushi.Rotation.Value;
+
+                // 個体の固定の向き(長軸=ローカルZ)。spinAnglesは往復の位相として流用
+                var baseRotation = Quaternion.AngleAxis(baseYaws[i], surfacePose.up) * surfacePose.rotation;
+                var sideWorld = baseRotation * Vector3.right;   // 往復する横方向
+                var longAxis = baseRotation * Vector3.forward;  // ロールの軸(寿司の長手方向)
+
+                var offset = Mathf.Sin(elapsedTime * (2f * Mathf.PI) / settings.rollPeriod + spinAngles[i])
+                             * settings.rollAmplitude;
+
+                sushi.Position.Value = ToWorld(positions2D[i]) + sideWorld * offset;
+
+                // 移動量に同期したロール(接地半径ぶんの円周で角度換算)
+                var rollDegrees = -offset / settings.rollContactRadius * Mathf.Rad2Deg;
+                sushi.Rotation.Value = Quaternion.AngleAxis(rollDegrees, longAxis) * baseRotation;
             }
         }
 
