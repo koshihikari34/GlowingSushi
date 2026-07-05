@@ -449,6 +449,7 @@ namespace GlowingSushi.Editor
 
                 cameraGo.AddComponent<ARCameraManager>();
                 cameraGo.AddComponent<ARCameraBackground>();
+                cameraGo.AddComponent<AudioListener>(); // 効果音の再生に必須(シーン内に1つ)
                 AddTrackedPoseDriver(cameraGo);
 
                 origin = originGo.AddComponent<XROrigin>();
@@ -460,6 +461,12 @@ namespace GlowingSushi.Editor
 
             var planeManager = origin.GetComponent<ARPlaneManager>();
             var arCamera = origin.Camera;
+
+            // 既存シーンの修復: ARカメラにAudioListenerが無ければ追加する(無いと音が鳴らない)
+            if (arCamera != null && arCamera.GetComponent<AudioListener>() == null)
+            {
+                arCamera.gameObject.AddComponent<AudioListener>();
+            }
 
             // --- 旧構成(SushiSchoolView)の残骸を掃除 ---
             var staleSchool = GameObject.Find("SushiSchoolView");
