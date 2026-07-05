@@ -23,9 +23,12 @@ namespace GlowingSushi.Editor
         const string ColorTexPath = "Assets/GlowingSushi/Models/J-food04/sushi02_color.jpg";
         const string NormalTexPath = "Assets/GlowingSushi/Models/J-food04/sushi02_nor.jpg";
         const string MaterialPath = "Assets/GlowingSushi/Materials/SushiEmissive.mat";
+        const string ParticleMaterialPath = "Assets/GlowingSushi/Materials/GlowParticle.mat";
         const string PrefabFolder = "Assets/GlowingSushi/Prefabs";
         const string ObsoletePrefabPath = "Assets/GlowingSushi/Prefabs/Sushi.prefab";
         const string SettingsPath = "Assets/GlowingSushi/Settings/SushiBehaviorSettings.asset";
+        const string AudioFolder = "Assets/GlowingSushi/Audio";
+        const string TouchSoundPath = "Assets/GlowingSushi/Audio/TouchPop.wav";
 
         /// <summary>
         /// sushi02モデル(盛り合わせ)から個別プレハブ化する寿司のノード名。
@@ -48,11 +51,14 @@ namespace GlowingSushi.Editor
             EnsureFolder("Assets/GlowingSushi", "Materials");
             EnsureFolder("Assets/GlowingSushi", "Prefabs");
             EnsureFolder("Assets/GlowingSushi", "Settings");
+            EnsureFolder("Assets/GlowingSushi", "Audio");
 
             EnsureNormalMapImport();
             var material = CreateEmissiveMaterial();
-            CreateSushiPiecePrefabs(material);
+            var particleMaterial = CreateGlowParticleMaterial();
+            CreateSushiPiecePrefabs(material, particleMaterial);
             CreateBehaviorSettings();
+            CreateTouchSound();
 
             AssetDatabase.SaveAssets();
             Debug.Log("[GlowingSushi] アセット生成が完了しました。次に「2. シーンセットアップ」を実行してください。");
@@ -96,10 +102,37 @@ namespace GlowingSushi.Editor
         }
 
         /// <summary>
+        /// 軌跡・バースト用の加算合成パーティクルマテリアルを生成する。
+        /// 色はParticleSystem側のstartColor(群れの発光色)で乗算される。
+        /// </summary>
+        static Material CreateGlowParticleMaterial()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(ParticleMaterialPath);
+            if (existing != null) return existing;
+
+            var material = new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));
+            material.SetTexture("_BaseMap", AssetDatabase.GetBuiltinExtraResource<Texture2D>("Default-Particle.psd"));
+            material.SetColor("_BaseColor", Color.white);
+            // 加算合成(透明サーフェス+SrcAlpha/One)で発光粒子らしく見せる
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Blend", 2f);
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+            AssetDatabase.CreateAsset(material, ParticleMaterialPath);
+            return material;
+        }
+
+        /// <summary>
         /// 盛り合わせモデルから寿司1貫ごとの個別プレハブを生成する。
         /// 各プレハブは対象のメッシュのみを持ち、中心を原点に合わせて泳ぐ向きの回転に耐える形にする。
+        /// 既存プレハブには軌跡パーティクルの追加のみ行う(GUIDを保つため削除しない)。
         /// </summary>
-        static void CreateSushiPiecePrefabs(Material material)
+        static void CreateSushiPiecePrefabs(Material material, Material particleMaterial)
         {
             var modelPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(FbxPath);
             if (modelPrefab == null)
@@ -117,13 +150,89 @@ namespace GlowingSushi.Editor
             foreach (var pieceName in SushiPieceNames)
             {
                 var prefabPath = $"{PrefabFolder}/Sushi_{pieceName.TrimEnd('_')}.prefab";
-                if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null) continue;
-                CreateSinglePiecePrefab(modelPrefab, pieceName, prefabPath, material);
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
+                {
+                    // 既存プレハブは参照GUIDを保ったまま軌跡パーティクルを追加する
+                    UpgradePrefabWithTrail(prefabPath, particleMaterial);
+                    continue;
+                }
+                CreateSinglePiecePrefab(modelPrefab, pieceName, prefabPath, material, particleMaterial);
             }
         }
 
+        /// <summary>既存プレハブへ軌跡パーティクルを追加し、SushiViewへ結線する</summary>
+        static void UpgradePrefabWithTrail(string prefabPath, Material particleMaterial)
+        {
+            var contents = PrefabUtility.LoadPrefabContents(prefabPath);
+            try
+            {
+                var view = contents.GetComponent<SushiView>();
+                if (view == null)
+                {
+                    Debug.LogError($"[GlowingSushi] SushiViewがありません: {prefabPath}");
+                    return;
+                }
+
+                var so = new SerializedObject(view);
+                if (so.FindProperty("trailParticles").objectReferenceValue != null) return; // 追加済み
+
+                var trail = CreateTrailParticleSystem(contents.transform, particleMaterial);
+                so.FindProperty("trailParticles").objectReferenceValue = trail;
+                so.ApplyModifiedPropertiesWithoutUndo();
+
+                PrefabUtility.SaveAsPrefabAsset(contents, prefabPath);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(contents);
+            }
+        }
+
+        /// <summary>泳いだ軌跡に発光粒子を残すParticleSystemを子として生成する</summary>
+        static ParticleSystem CreateTrailParticleSystem(Transform parent, Material particleMaterial)
+        {
+            var go = new GameObject("TrailParticles");
+            go.transform.SetParent(parent, false);
+
+            var ps = go.AddComponent<ParticleSystem>();
+            var main = ps.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.World; // 粒子をその場に残す
+            main.startLifetime = 1.0f;
+            main.startSpeed = 0f;
+            main.startSize = 0.02f;
+            main.gravityModifier = 0f;
+            main.maxParticles = 200;
+
+            // 移動距離に応じて放出することで「軌跡」になる
+            var emission = ps.emission;
+            emission.rateOverTime = 0f;
+            emission.rateOverDistance = 25f;
+
+            var shape = ps.shape;
+            shape.enabled = false;
+
+            // 時間経過でフェードアウト
+            var colorOverLifetime = ps.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+            colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
+
+            // 時間経過で縮小
+            var sizeOverLifetime = ps.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0f));
+
+            var renderer = go.GetComponent<ParticleSystemRenderer>();
+            renderer.sharedMaterial = particleMaterial;
+
+            return ps;
+        }
+
         /// <summary>指定した名前のノードだけを取り出した1貫分のプレハブを生成する</summary>
-        static void CreateSinglePiecePrefab(GameObject modelPrefab, string pieceName, string prefabPath, Material material)
+        static void CreateSinglePiecePrefab(GameObject modelPrefab, string pieceName, string prefabPath, Material material, Material particleMaterial)
         {
             var root = new GameObject($"Sushi_{pieceName.TrimEnd('_')}");
             try
@@ -179,9 +288,12 @@ namespace GlowingSushi.Editor
                 }
                 renderer.sharedMaterials = materials;
 
+                var trail = CreateTrailParticleSystem(root.transform, particleMaterial);
+
                 var view = root.AddComponent<SushiView>();
                 var so = new SerializedObject(view);
                 so.FindProperty("bodyRenderer").objectReferenceValue = renderer;
+                so.FindProperty("trailParticles").objectReferenceValue = trail;
                 so.ApplyModifiedPropertiesWithoutUndo();
 
                 PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
@@ -198,6 +310,65 @@ namespace GlowingSushi.Editor
             if (AssetDatabase.LoadAssetAtPath<SushiBehaviorSettings>(SettingsPath) != null) return;
             var settings = ScriptableObject.CreateInstance<SushiBehaviorSettings>();
             AssetDatabase.CreateAsset(settings, SettingsPath);
+        }
+
+        /// <summary>
+        /// タッチ命中音(水泡ポップ音)のWAVを合成して生成する。
+        /// 周波数が下がるサイン波+倍音に指数減衰をかけた約0.25秒のモノラル16bit。
+        /// 好みの音源に差し替えてよい(このファイルを置き換えるだけ)。
+        /// </summary>
+        static void CreateTouchSound()
+        {
+            if (AssetDatabase.LoadAssetAtPath<AudioClip>(TouchSoundPath) != null) return;
+
+            const int sampleRate = 44100;
+            const float duration = 0.25f;
+            var sampleCount = (int)(sampleRate * duration);
+            var samples = new float[sampleCount];
+
+            var phase = 0.0;
+            for (var i = 0; i < sampleCount; i++)
+            {
+                var t = i / (float)sampleRate;
+                // 900Hz→300Hzへ滑らかに下がる「ポコッ」というスイープ
+                var frequency = Mathf.Lerp(900f, 300f, t / duration);
+                phase += 2.0 * System.Math.PI * frequency / sampleRate;
+                var envelope = Mathf.Exp(-18f * t);
+                samples[i] = (Mathf.Sin((float)phase) * 0.8f + Mathf.Sin((float)(phase * 2.0)) * 0.2f) * envelope;
+            }
+
+            WriteWav(TouchSoundPath, samples, sampleRate);
+            AssetDatabase.ImportAsset(TouchSoundPath);
+        }
+
+        /// <summary>float配列をモノラル16bit PCMのWAVファイルとして書き出す</summary>
+        static void WriteWav(string path, float[] samples, int sampleRate)
+        {
+            using var stream = new System.IO.FileStream(path, System.IO.FileMode.Create);
+            using var writer = new System.IO.BinaryWriter(stream);
+
+            var dataSize = samples.Length * 2; // 16bit = 2バイト/サンプル
+
+            // RIFFヘッダ
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
+            writer.Write(36 + dataSize);
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("WAVE"));
+            // fmtチャンク(PCM, モノラル)
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("fmt "));
+            writer.Write(16);
+            writer.Write((short)1);
+            writer.Write((short)1);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * 2);
+            writer.Write((short)2);
+            writer.Write((short)16);
+            // dataチャンク
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("data"));
+            writer.Write(dataSize);
+            foreach (var sample in samples)
+            {
+                writer.Write((short)(Mathf.Clamp(sample, -1f, 1f) * short.MaxValue));
+            }
         }
 
         // ------------------------------------------------------------
@@ -266,20 +437,30 @@ namespace GlowingSushi.Editor
             var planeManager = origin.GetComponent<ARPlaneManager>();
             var arCamera = origin.Camera;
 
-            // --- 群れView ---
-            var schoolView = Object.FindFirstObjectByType<SushiSchoolView>();
-            if (schoolView == null)
+            // --- 旧構成(SushiSchoolView)の残骸を掃除 ---
+            var staleSchool = GameObject.Find("SushiSchoolView");
+            if (staleSchool != null)
             {
-                schoolView = new GameObject("SushiSchoolView").AddComponent<SushiSchoolView>();
+                Object.DestroyImmediate(staleSchool);
             }
-            var schoolSo = new SerializedObject(schoolView);
-            var prefabsProp = schoolSo.FindProperty("sushiPrefabs");
+
+            // --- 水族館View ---
+            var aquariumView = Object.FindFirstObjectByType<AquariumView>();
+            if (aquariumView == null)
+            {
+                aquariumView = new GameObject("AquariumView").AddComponent<AquariumView>();
+            }
+            var aquariumSo = new SerializedObject(aquariumView);
+            var prefabsProp = aquariumSo.FindProperty("sushiPrefabs");
             prefabsProp.arraySize = prefabs.Length;
             for (var i = 0; i < prefabs.Length; i++)
             {
                 prefabsProp.GetArrayElementAtIndex(i).objectReferenceValue = prefabs[i];
             }
-            schoolSo.ApplyModifiedPropertiesWithoutUndo();
+            aquariumSo.ApplyModifiedPropertiesWithoutUndo();
+
+            // --- タッチ演出View(バーストパーティクル+効果音) ---
+            SetupTouchEffectView();
 
             // --- DIスコープ ---
             var scope = Object.FindFirstObjectByType<GlowingSushiLifetimeScope>();
@@ -310,7 +491,77 @@ namespace GlowingSushi.Editor
             Debug.Log(
                 $"[GlowingSushi] シーンセットアップ完了。結線状態: sushiPrefabs={wiredPrefabs}/{prefabs.Length}, " +
                 $"behaviorSettings={(settingsProp.objectReferenceValue != null ? "OK" : "未設定")}, " +
-                $"planeManager={(planeManager != null ? "OK" : "未設定")}, arCamera={(arCamera != null ? "OK" : "未設定")}");
+                $"planeManager={(planeManager != null ? "OK" : "未設定")}, arCamera={(arCamera != null ? "OK" : "未設定")}。" +
+                "アセット参照が未設定の場合はインスペクタから手動でドラッグしてください。");
+        }
+
+        /// <summary>タッチ演出View(バーストパーティクル+AudioSource)をシーンへ構築する</summary>
+        static void SetupTouchEffectView()
+        {
+            var effectView = Object.FindFirstObjectByType<TouchEffectView>();
+            if (effectView == null)
+            {
+                var go = new GameObject("TouchEffectView");
+                effectView = go.AddComponent<TouchEffectView>();
+
+                // バーストパーティクル(命中位置で球状に弾ける発光粒子)
+                var psGo = new GameObject("BurstParticles");
+                psGo.transform.SetParent(go.transform, false);
+                var ps = psGo.AddComponent<ParticleSystem>();
+                var main = ps.main;
+                main.playOnAwake = false;
+                main.loop = false;
+                main.duration = 0.6f;
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+                main.startLifetime = 0.6f;
+                main.startSpeed = new ParticleSystem.MinMaxCurve(0.5f, 1.5f);
+                main.startSize = 0.03f;
+                main.gravityModifier = 0f;
+                main.maxParticles = 100;
+
+                var emission = ps.emission;
+                emission.rateOverTime = 0f;
+                emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 30) });
+
+                var shape = ps.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Sphere;
+                shape.radius = 0.03f;
+
+                var colorOverLifetime = ps.colorOverLifetime;
+                colorOverLifetime.enabled = true;
+                var gradient = new Gradient();
+                gradient.SetKeys(
+                    new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                    new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+                colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
+
+                var sizeOverLifetime = ps.sizeOverLifetime;
+                sizeOverLifetime.enabled = true;
+                sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0f));
+
+                var renderer = psGo.GetComponent<ParticleSystemRenderer>();
+                renderer.sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>(ParticleMaterialPath);
+
+                // 効果音(3D音源として命中位置で鳴らす)
+                var audioSource = go.AddComponent<AudioSource>();
+                audioSource.playOnAwake = false;
+                audioSource.spatialBlend = 1f;
+
+                var so = new SerializedObject(effectView);
+                so.FindProperty("burstParticles").objectReferenceValue = ps;
+                so.FindProperty("audioSource").objectReferenceValue = audioSource;
+                so.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            // 効果音のアセット参照(未設定の場合のみ結線を試みる)
+            var effectSo = new SerializedObject(effectView);
+            var soundProp = effectSo.FindProperty("hitSound");
+            if (soundProp.objectReferenceValue == null)
+            {
+                soundProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(TouchSoundPath);
+                effectSo.ApplyModifiedPropertiesWithoutUndo();
+            }
         }
 
         /// <summary>ARカメラの姿勢追従用TrackedPoseDriverを追加する(実機+XR Simulation両対応のバインディング)</summary>
