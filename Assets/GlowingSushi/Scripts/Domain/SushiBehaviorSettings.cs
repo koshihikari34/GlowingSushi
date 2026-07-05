@@ -130,10 +130,10 @@ namespace GlowingSushi.Domain
         public float glowPulsePeriod = 2f;
 
         [Tooltip("発光強度の最小値")]
-        public float glowMinIntensity = 0.5f;
+        public float glowMinIntensity = 0.35f;
 
         [Tooltip("発光強度の最大値")]
-        public float glowMaxIntensity = 2.5f;
+        public float glowMaxIntensity = 1.5f;
 
         [Tooltip("逃走時に発光強度へ掛ける係数")]
         public float fleeGlowMultiplier = 1.5f;

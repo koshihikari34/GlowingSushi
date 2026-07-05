@@ -219,19 +219,23 @@ namespace GlowingSushi.Editor
         {
             var main = ps.main;
             main.simulationSpace = ParticleSystemSimulationSpace.World; // 粒子をその場に残す
-            main.startLifetime = 1.5f;
-            main.startSpeed = 0f;
-            main.startSize = 0.015f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.0f, 2.0f);
+            // わずかな初速でゆっくり漂わせる(一列の点線にならないように)
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.1f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.008f, 0.02f);
             main.gravityModifier = 0f;
-            main.maxParticles = 600;
+            main.maxParticles = 1000;
 
             // 移動距離に応じて放出することで「軌跡」になる
             var emission = ps.emission;
             emission.rateOverTime = 0f;
-            emission.rateOverDistance = 60f;
+            emission.rateOverDistance = 100f;
 
+            // 球状に散らして放出し、軌跡に幅を持たせる
             var shape = ps.shape;
-            shape.enabled = false;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = 0.04f;
 
             // 時間経過でフェードアウト
             var colorOverLifetime = ps.colorOverLifetime;
