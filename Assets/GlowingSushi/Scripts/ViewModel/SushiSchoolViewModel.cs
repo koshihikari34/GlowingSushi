@@ -3,65 +3,68 @@ using System.Collections.Generic;
 using GlowingSushi.Domain;
 using GlowingSushi.Service;
 using ObservableCollections;
-using R3;
 using UnityEngine;
 
 namespace GlowingSushi.ViewModel
 {
     /// <summary>
-    /// 寿司の群れ全体を管理するViewModel。
-    /// ObservableListで個体群を公開し、毎フレームのTickでBoidシミュレーション・
-    /// 状態遷移・発光強度の更新を駆動する。タッチによる逃走もここで処理する。
+    /// 1つの群れを管理するViewModel。固有のアンカーと発光色を持ち、
+    /// 毎フレームのTickでBoidシミュレーション・状態遷移・発光強度の更新を行う。
+    /// 複数群れの束ねとタッチ入力の振り分けはAquariumViewModelが担当する。
     /// </summary>
     public sealed class SushiSchoolViewModel : IDisposable
     {
-        readonly SushiSpawnService spawnService;
         readonly ICameraPoseService cameraPose;
         readonly SushiBehaviorSettings settings;
-        readonly System.Random random = new();
-        readonly IDisposable touchSubscription;
+        readonly System.Random random;
 
         // Boid計算用の再利用バッファ(毎フレームのアロケーションを避ける)
         readonly List<Vector3> positionsBuffer = new();
         readonly List<Vector3> velocitiesBuffer = new();
 
         /// <summary>群れのアンカー(引き戻しの中心)</summary>
-        Vector3 anchorCenter;
+        readonly Vector3 anchorCenter;
 
         /// <summary>シミュレーション経過時間(ふらつき・発光パルスの位相に使う)</summary>
         float elapsedTime;
 
-        /// <summary>群れの個体一覧。ViewはObserveAdd/ObserveRemoveで生成・破棄に追従する。</summary>
+        /// <summary>この群れの発光色</summary>
+        public Color GlowColor { get; }
+
+        /// <summary>群れの個体一覧。Viewは増減を購読してSushiViewを生成・破棄する。</summary>
         public ObservableList<SushiViewModel> Sushis { get; } = new();
 
+        /// <summary>
+        /// 群れを生成する。アンカー中心の球内に個体を初期配置する。
+        /// </summary>
+        /// <param name="spawnService">初期配置データの生成サービス</param>
+        /// <param name="cameraPose">カメラ姿勢(接近行動の目標)</param>
+        /// <param name="settings">挙動パラメータ</param>
+        /// <param name="random">乱数(全群れで共有)</param>
+        /// <param name="anchorCenter">群れの中心となるワールド座標</param>
+        /// <param name="glowColor">この群れの発光色</param>
         public SushiSchoolViewModel(
             SushiSpawnService spawnService,
             ICameraPoseService cameraPose,
-            TouchInputService touchInput,
-            SushiBehaviorSettings settings)
+            SushiBehaviorSettings settings,
+            System.Random random,
+            Vector3 anchorCenter,
+            Color glowColor)
         {
-            this.spawnService = spawnService;
             this.cameraPose = cameraPose;
             this.settings = settings;
+            this.random = random;
+            this.anchorCenter = anchorCenter;
+            GlowColor = glowColor;
 
-            touchSubscription = touchInput.TouchRays.Subscribe(OnTouch);
-        }
-
-        /// <summary>
-        /// 指定した平面姿勢の上方に群れを出現させる。
-        /// </summary>
-        /// <param name="planePose">検出された平面の姿勢(位置=中心、up=法線)</param>
-        public void Spawn(Pose planePose)
-        {
-            anchorCenter = planePose.position + planePose.up * settings.spawnHeightAbovePlane;
             foreach (var data in spawnService.CreateSchool(anchorCenter))
             {
-                Sushis.Add(new SushiViewModel(settings, random, data));
+                Sushis.Add(new SushiViewModel(settings, random, data, glowColor));
             }
         }
 
         /// <summary>
-        /// シミュレーションを1フレーム分進める。エントリポイントのTickから呼ばれる。
+        /// シミュレーションを1フレーム分進める。AquariumViewModelのTickから呼ばれる。
         /// </summary>
         public void Tick(float deltaTime)
         {
@@ -94,15 +97,27 @@ namespace GlowingSushi.ViewModel
                     SushiState.Approaching => settings.approachSpeed,
                     _ => settings.maxSpeed,
                 };
-                sushi.Velocity = Vector3.ClampMagnitude(sushi.Velocity + steer * deltaTime, maxSpeed);
-                sushi.Position.Value += sushi.Velocity * deltaTime;
+                var velocity = Vector3.ClampMagnitude(sushi.Velocity + steer * deltaTime, maxSpeed);
+
+                // 垂直方向の速度を減衰させ、主に水平に泳がせる(魚らしさ)
+                velocity.y *= 1f - settings.verticalDamping * deltaTime;
+
+                // 最低速度を下回らないようにする(魚は止まらない)
+                var speed = velocity.magnitude;
+                if (speed > 1e-5f && speed < settings.minSpeed)
+                {
+                    velocity = velocity / speed * settings.minSpeed;
+                }
+
+                sushi.Velocity = velocity;
+                sushi.Position.Value += velocity * deltaTime;
 
                 // 進行方向を向かせる
-                if (sushi.Velocity.sqrMagnitude > 1e-6f)
+                if (velocity.sqrMagnitude > 1e-6f)
                 {
                     sushi.Rotation.Value = Quaternion.Slerp(
                         sushi.Rotation.Value,
-                        Quaternion.LookRotation(sushi.Velocity.normalized),
+                        Quaternion.LookRotation(velocity.normalized),
                         deltaTime * 5f);
                 }
 
@@ -161,34 +176,39 @@ namespace GlowingSushi.ViewModel
         }
 
         /// <summary>
-        /// タッチレイに対するヒット判定。最も手前の個体を逃走させ、周囲の仲間にも伝播させる。
+        /// タッチレイに対するこの群れ内のヒット判定。最も手前の個体を返す。
         /// </summary>
-        void OnTouch(Ray ray)
+        /// <returns>ヒットしたかどうか</returns>
+        public bool FindHit(Ray ray, out SushiViewModel hit, out float distance, out Vector3 hitPoint)
         {
-            SushiViewModel hit = null;
-            var hitDistance = float.MaxValue;
-            var hitPoint = Vector3.zero;
+            hit = null;
+            distance = float.MaxValue;
+            hitPoint = Vector3.zero;
 
             foreach (var sushi in Sushis)
             {
                 if (!BoidMath.RayIntersectsSphere(
-                        ray.origin, ray.direction, sushi.Position.Value, settings.touchHitRadius, out var distance))
+                        ray.origin, ray.direction, sushi.Position.Value, settings.touchHitRadius, out var d))
                 {
                     continue;
                 }
-                if (distance < hitDistance)
+                if (d < distance)
                 {
                     hit = sushi;
-                    hitDistance = distance;
-                    hitPoint = ray.origin + ray.direction * distance;
+                    distance = d;
+                    hitPoint = ray.origin + ray.direction * d;
                 }
             }
+            return hit != null;
+        }
 
-            if (hit == null) return;
-
+        /// <summary>
+        /// 指定個体を逃走させ、その周囲の仲間にも伝播させる。
+        /// </summary>
+        public void FleeFrom(SushiViewModel hit, Vector3 hitPoint)
+        {
             hit.Interact(hitPoint);
 
-            // タッチされた個体の周囲にいる仲間も一緒に逃がす
             var sqrPropagation = settings.fleePropagationRadius * settings.fleePropagationRadius;
             var hitPosition = hit.Position.Value;
             foreach (var sushi in Sushis)
@@ -203,7 +223,6 @@ namespace GlowingSushi.ViewModel
 
         public void Dispose()
         {
-            touchSubscription.Dispose();
             foreach (var sushi in Sushis)
             {
                 sushi.Dispose();

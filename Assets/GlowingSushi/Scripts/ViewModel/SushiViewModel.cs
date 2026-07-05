@@ -26,6 +26,9 @@ namespace GlowingSushi.ViewModel
         /// <summary>発光強度(Viewはこの値をEmissionに写像するだけ)</summary>
         public ReactiveProperty<float> GlowIntensity { get; }
 
+        /// <summary>発光色(所属する群れの色。生成時に固定)</summary>
+        public Color GlowColor { get; }
+
         // ---- 以下はBoidシミュレーション用の非リアクティブな内部状態 ----
 
         /// <summary>現在速度(毎フレーム更新されるためリアクティブにしない)</summary>
@@ -43,10 +46,11 @@ namespace GlowingSushi.ViewModel
         /// <summary>逃走の起点(タッチされたワールド座標)</summary>
         public Vector3 FleeFrom;
 
-        public SushiViewModel(SushiBehaviorSettings settings, System.Random random, SushiSpawnData spawnData)
+        public SushiViewModel(SushiBehaviorSettings settings, System.Random random, SushiSpawnData spawnData, Color glowColor)
         {
             this.settings = settings;
             this.random = random;
+            GlowColor = glowColor;
 
             Position = new ReactiveProperty<Vector3>(spawnData.Position);
             Rotation = new ReactiveProperty<Quaternion>(
