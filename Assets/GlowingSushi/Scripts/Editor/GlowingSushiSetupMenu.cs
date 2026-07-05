@@ -160,7 +160,10 @@ namespace GlowingSushi.Editor
             }
         }
 
-        /// <summary>既存プレハブへ軌跡パーティクルを追加し、SushiViewへ結線する</summary>
+        /// <summary>
+        /// 既存プレハブの軌跡パーティクルを追加・再設定し、SushiViewへ結線する。
+        /// パラメータ調整を既存プレハブへ反映できるよう、設定は毎回適用し直す。
+        /// </summary>
         static void UpgradePrefabWithTrail(string prefabPath, Material particleMaterial)
         {
             var contents = PrefabUtility.LoadPrefabContents(prefabPath);
@@ -174,10 +177,23 @@ namespace GlowingSushi.Editor
                 }
 
                 var so = new SerializedObject(view);
-                if (so.FindProperty("trailParticles").objectReferenceValue != null) return; // 追加済み
+                var trailProp = so.FindProperty("trailParticles");
+                var trail = trailProp.objectReferenceValue as ParticleSystem;
+                if (trail == null)
+                {
+                    var child = contents.transform.Find("TrailParticles");
+                    trail = child != null ? child.GetComponent<ParticleSystem>() : null;
+                }
+                if (trail == null)
+                {
+                    trail = CreateTrailParticleSystem(contents.transform, particleMaterial);
+                }
+                else
+                {
+                    ConfigureTrailParticles(trail, particleMaterial);
+                }
 
-                var trail = CreateTrailParticleSystem(contents.transform, particleMaterial);
-                so.FindProperty("trailParticles").objectReferenceValue = trail;
+                trailProp.objectReferenceValue = trail;
                 so.ApplyModifiedPropertiesWithoutUndo();
 
                 PrefabUtility.SaveAsPrefabAsset(contents, prefabPath);
@@ -193,20 +209,26 @@ namespace GlowingSushi.Editor
         {
             var go = new GameObject("TrailParticles");
             go.transform.SetParent(parent, false);
-
             var ps = go.AddComponent<ParticleSystem>();
+            ConfigureTrailParticles(ps, particleMaterial);
+            return ps;
+        }
+
+        /// <summary>軌跡パーティクルの設定を適用する(生成時・再設定時の両方で使う)</summary>
+        static void ConfigureTrailParticles(ParticleSystem ps, Material particleMaterial)
+        {
             var main = ps.main;
             main.simulationSpace = ParticleSystemSimulationSpace.World; // 粒子をその場に残す
-            main.startLifetime = 1.0f;
+            main.startLifetime = 1.5f;
             main.startSpeed = 0f;
-            main.startSize = 0.02f;
+            main.startSize = 0.015f;
             main.gravityModifier = 0f;
-            main.maxParticles = 200;
+            main.maxParticles = 600;
 
             // 移動距離に応じて放出することで「軌跡」になる
             var emission = ps.emission;
             emission.rateOverTime = 0f;
-            emission.rateOverDistance = 25f;
+            emission.rateOverDistance = 60f;
 
             var shape = ps.shape;
             shape.enabled = false;
@@ -225,10 +247,8 @@ namespace GlowingSushi.Editor
             sizeOverLifetime.enabled = true;
             sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0f));
 
-            var renderer = go.GetComponent<ParticleSystemRenderer>();
+            var renderer = ps.GetComponent<ParticleSystemRenderer>();
             renderer.sharedMaterial = particleMaterial;
-
-            return ps;
         }
 
         /// <summary>指定した名前のノードだけを取り出した1貫分のプレハブを生成する</summary>
@@ -629,6 +649,44 @@ namespace GlowingSushi.Editor
             so.ApplyModifiedPropertiesWithoutUndo();
 
             EditorUtility.SetDirty(rendererData);
+        }
+
+        // ------------------------------------------------------------
+        // 4. 挙動パラメータを推奨値へ更新
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 既存のSushiBehaviorSettings.assetへ現在の推奨値を一括適用する。
+        /// アセットは生成時の値を保持し続けるため、スクリプトのデフォルト変更後はこれで反映する。
+        /// </summary>
+        [MenuItem("GlowingSushi/Setup/4. 挙動パラメータを推奨値へ更新")]
+        public static void ApplyRecommendedBehaviorSettings()
+        {
+            var settings = AssetDatabase.LoadAssetAtPath<SushiBehaviorSettings>(SettingsPath);
+            if (settings == null)
+            {
+                EditorUtility.DisplayDialog(
+                    "GlowingSushi",
+                    "設定アセットが見つかりません。先に「1. アセット生成」を実行してください。",
+                    "OK");
+                return;
+            }
+
+            // 新規生成したインスタンスのデフォルト値(=スクリプトの推奨値)をコピーする
+            var assetName = settings.name;
+            var defaults = ScriptableObject.CreateInstance<SushiBehaviorSettings>();
+            try
+            {
+                EditorUtility.CopySerialized(defaults, settings);
+                settings.name = assetName; // CopySerializedで名前まで上書きされるため戻す
+            }
+            finally
+            {
+                Object.DestroyImmediate(defaults);
+            }
+
+            EditorUtility.SetDirty(settings);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[GlowingSushi] SushiBehaviorSettings.assetへ推奨値を適用しました。");
         }
 
         /// <summary>生成済みの寿司1貫プレハブ(Sushi_*.prefab)をすべて読み込む</summary>

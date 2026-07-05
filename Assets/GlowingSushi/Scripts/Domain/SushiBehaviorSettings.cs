@@ -22,47 +22,47 @@ namespace GlowingSushi.Domain
             new(1.0f, 0.3f, 0.9f), // マゼンタ(ネオン風)
         };
 
-        [Tooltip("群れ同士の水平方向の間隔(メートル)")]
-        public float schoolSpacing = 1.2f;
+        [Tooltip("群れ同士の水平方向の間隔(メートル)。行動半径より大きくして群れ同士が混ざらないようにする")]
+        public float schoolSpacing = 1.6f;
 
         [Tooltip("群れごとの高さの差(メートル)")]
         public float schoolHeightStep = 0.4f;
 
         [Header("群れの構成")]
         [Tooltip("1つの群れの寿司の数")]
-        public int schoolSize = 10;
+        public int schoolSize = 14;
 
         [Tooltip("アンカーから群れが離れられる半径(超えると引き戻される)")]
-        public float containmentRadius = 1.5f;
+        public float containmentRadius = 0.9f;
 
         [Tooltip("平面からどれだけ上に群れの中心を置くか(メートル)")]
         public float spawnHeightAbovePlane = 0.6f;
 
         [Header("Boid(群泳)")]
         [Tooltip("仲間として認識する距離")]
-        public float neighborRadius = 1.0f;
+        public float neighborRadius = 0.8f;
 
         [Tooltip("これより近い仲間からは離れる")]
-        public float separationRadius = 0.35f;
+        public float separationRadius = 0.25f;
 
         [Tooltip("分離の重み")]
         public float separationWeight = 1.8f;
 
         [Tooltip("整列の重み(強めると群れで同じ方向に泳ぐ魚群らしさが出る)")]
-        public float alignmentWeight = 1.5f;
+        public float alignmentWeight = 1.8f;
 
-        [Tooltip("結合の重み")]
-        public float cohesionWeight = 1.0f;
+        [Tooltip("結合の重み(強めると群れが密集してまとまる)")]
+        public float cohesionWeight = 1.8f;
 
         [Tooltip("ふらつきの重み")]
-        public float wanderWeight = 0.35f;
+        public float wanderWeight = 0.25f;
 
         [Header("速度・操舵")]
         [Tooltip("通常時の最大速度(m/s)")]
-        public float maxSpeed = 0.6f;
+        public float maxSpeed = 0.45f;
 
         [Tooltip("最低速度(m/s)。魚のように止まらず泳ぎ続けさせる")]
-        public float minSpeed = 0.25f;
+        public float minSpeed = 0.2f;
 
         [Tooltip("垂直方向の速度減衰(0=減衰なし〜1=強)。主に水平に泳がせる")]
         [Range(0f, 1f)]
