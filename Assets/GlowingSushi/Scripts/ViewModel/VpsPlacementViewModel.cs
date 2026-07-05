@@ -27,6 +27,12 @@ namespace GlowingSushi.ViewModel
         /// <summary>一度でもローカライズに成功したかどうか(UI表示などに使える)</summary>
         public ReadOnlyReactiveProperty<bool> IsLocalized => localization.IsLocalized;
 
+        /// <summary>登録されたアンカーの総数(状態HUD用。0ならアンカーの注入に失敗している)</summary>
+        public int RegisteredAnchorCount { get; private set; }
+
+        /// <summary>配置済みスポットの総数(状態HUD用)</summary>
+        public int PlacedSpotCount { get; private set; }
+
         public VpsPlacementViewModel(VpsLocalizationService localization, SurfaceSpotsViewModel surfaceSpots)
         {
             this.localization = localization;
@@ -42,6 +48,8 @@ namespace GlowingSushi.ViewModel
         /// <param name="anchor">アンカーのTransform(XRSpace配下)</param>
         public void RegisterAnchor(int mapId, SurfaceBehaviorType type, Transform anchor)
         {
+            RegisteredAnchorCount++;
+
             if (placedMaps.Contains(mapId))
             {
                 PlaceSpot(type, anchor);
@@ -83,6 +91,7 @@ namespace GlowingSushi.ViewModel
         {
             // XRSpaceがローカライズ済みなので、アンカーのワールド姿勢は実世界に一致している
             surfaceSpots.AddSpot(type, new Pose(anchor.position, anchor.rotation), Vector2.zero);
+            PlacedSpotCount++;
         }
 
         public void Dispose()

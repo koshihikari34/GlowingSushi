@@ -36,10 +36,13 @@ namespace GlowingSushi.View
         string BuildStatusText()
         {
             var plane = viewModel.IsPlaneContentPlaced.CurrentValue ? "配置済み" : "検出待ち";
+            var nearest = viewModel.NearestSpotDistance;
+            var nearestText = nearest < 0f ? "-" : $"{nearest:F1}m";
 
             if (!viewModel.HasVps)
             {
-                return $"経過 {elapsedTime:F0}s | 平面: {plane} | VPS: 無効";
+                return $"経過 {elapsedTime:F0}s | 平面: {plane} | VPS: 無効\n" +
+                       $"スポット: {viewModel.TotalSpotCount} | 最寄り {nearestText}";
             }
 
             var localized = viewModel.IsLocalized.CurrentValue ? "成功" : "未成功";
@@ -48,7 +51,9 @@ namespace GlowingSushi.View
                 $"SDK: {viewModel.SdkStatus.CurrentValue}\n" +
                 $"VPS: {localized} | 試行 {viewModel.AttemptCount.CurrentValue} " +
                 $"/ 成功 {viewModel.SuccessCount.CurrentValue} / 失敗 {viewModel.FailureCount.CurrentValue}\n" +
-                $"成功マップ: {viewModel.LastLocalizedMaps.CurrentValue}";
+                $"成功マップ: {viewModel.LastLocalizedMaps.CurrentValue}\n" +
+                $"アンカー登録 {viewModel.RegisteredAnchorCount} | VPS配置 {viewModel.VpsPlacedSpotCount} " +
+                $"| スポット計 {viewModel.TotalSpotCount} | 最寄り {nearestText}";
         }
     }
 }

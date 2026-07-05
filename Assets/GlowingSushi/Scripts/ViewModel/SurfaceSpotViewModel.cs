@@ -35,6 +35,9 @@ namespace GlowingSushi.ViewModel
         /// <summary>このスポットのふるまい種別</summary>
         public SurfaceBehaviorType BehaviorType { get; }
 
+        /// <summary>スポット中心のワールド座標(状態HUDの距離表示などに使う)</summary>
+        public Vector3 Center => surfacePose.position;
+
         /// <summary>スポットの個体一覧。Viewは増減を購読してSushiViewを生成・破棄する。</summary>
         public ObservableList<SushiViewModel> Sushis { get; } = new();
 

@@ -47,14 +47,15 @@ namespace GlowingSushi.Root
             planeDetection.Initialize();
 
             // VPS(Immersal)はLocalizer設定済みのシーンでのみ登録されているため、任意解決で初期化する
-            if (resolver.TryResolve<VpsPlacementViewModel>(out var vpsPlacement))
+            var hasVpsPlacement = resolver.TryResolve<VpsPlacementViewModel>(out var vpsPlacement);
+            if (hasVpsPlacement)
             {
                 vpsPlacement.Initialize();
             }
             if (resolver.TryResolve<VpsLocalizationService>(out var vpsLocalization))
             {
                 vpsLocalization.Initialize();
-                status.AttachVps(vpsLocalization);
+                status.AttachVps(vpsLocalization, hasVpsPlacement ? vpsPlacement : null);
             }
         }
 
