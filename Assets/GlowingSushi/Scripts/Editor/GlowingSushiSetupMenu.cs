@@ -29,6 +29,7 @@ namespace GlowingSushi.Editor
         const string SettingsPath = "Assets/GlowingSushi/Settings/SushiBehaviorSettings.asset";
         const string AudioFolder = "Assets/GlowingSushi/Audio";
         const string TouchSoundPath = "Assets/GlowingSushi/Audio/TouchPop.wav";
+        const string BgmPath = "Assets/GlowingSushi/Audio/AquariumBgm.wav";
 
         /// <summary>
         /// sushi02モデル(盛り合わせ)から個別プレハブ化する寿司のノード名。
@@ -59,6 +60,7 @@ namespace GlowingSushi.Editor
             CreateSushiPiecePrefabs(material, particleMaterial);
             CreateBehaviorSettings();
             CreateTouchSound();
+            CreateBgm();
 
             AssetDatabase.SaveAssets();
             Debug.Log("[GlowingSushi] アセット生成が完了しました。次に「2. シーンセットアップ」を実行してください。");
@@ -378,6 +380,74 @@ namespace GlowingSushi.Editor
             AssetDatabase.ImportAsset(TouchSoundPath);
         }
 
+        /// <summary>
+        /// 環境音パッド風のループBGM(Am-F-C-G、約24秒)を合成して生成する。
+        /// 各周波数をループ長の整数倍周期に量子化することで、つなぎ目のない完全ループにしている。
+        /// 好みの曲に差し替えてよい(このファイルを置き換えるだけ)。
+        /// </summary>
+        static void CreateBgm()
+        {
+            if (AssetDatabase.LoadAssetAtPath<AudioClip>(BgmPath) != null) return;
+
+            const int sampleRate = 44100;
+            const float chordDuration = 6f;
+            const float crossfadeRatio = 0.25f; // コード末尾25%でクロスフェード
+            var chords = new[]
+            {
+                new[] { 110.00f, 164.81f, 220.00f, 261.63f }, // Am
+                new[] { 87.31f, 130.81f, 174.61f, 220.00f },  // F
+                new[] { 130.81f, 196.00f, 261.63f, 329.63f }, // C
+                new[] { 98.00f, 146.83f, 196.00f, 246.94f },  // G
+            };
+            var loopLength = chordDuration * chords.Length;
+            var sampleCount = (int)(sampleRate * loopLength);
+            var samples = new float[sampleCount];
+
+            // ループ長で位相が一致するよう周波数を量子化(つなぎ目のクリック防止)
+            float Quantize(float f) => Mathf.Round(f * loopLength) / loopLength;
+
+            float ChordSample(int chordIndex, float t)
+            {
+                var notes = chords[chordIndex % chords.Length];
+                var sum = 0f;
+                foreach (var note in notes)
+                {
+                    var f = Quantize(note);
+                    var w = 2f * Mathf.PI * f * t;
+                    // 基音+弱い2倍音+微小デチューンで柔らかいパッドにする
+                    sum += Mathf.Sin(w) + 0.3f * Mathf.Sin(w * 2f) + 0.5f * Mathf.Sin(2f * Mathf.PI * Quantize(note * 1.003f) * t);
+                }
+                return sum / (notes.Length * 1.8f);
+            }
+
+            for (var i = 0; i < sampleCount; i++)
+            {
+                var t = i / (float)sampleRate;
+                var progress = t / chordDuration;
+                var index = (int)progress % chords.Length;
+                var frac = progress - Mathf.Floor(progress);
+
+                float value;
+                if (frac > 1f - crossfadeRatio)
+                {
+                    // 次のコードへ等パワークロスフェード(最後のコードは先頭へ戻る)
+                    var x = (frac - (1f - crossfadeRatio)) / crossfadeRatio * (Mathf.PI * 0.5f);
+                    value = ChordSample(index, t) * Mathf.Cos(x) + ChordSample(index + 1, t) * Mathf.Sin(x);
+                }
+                else
+                {
+                    value = ChordSample(index, t);
+                }
+
+                // ゆっくりした音量の揺らぎ(トレモロ)で単調さを消す
+                var tremolo = 1f + 0.08f * Mathf.Sin(2f * Mathf.PI * (2f / loopLength) * t);
+                samples[i] = value * tremolo * 0.35f;
+            }
+
+            WriteWav(BgmPath, samples, sampleRate);
+            AssetDatabase.ImportAsset(BgmPath);
+        }
+
         /// <summary>float配列をモノラル16bit PCMのWAVファイルとして書き出す</summary>
         static void WriteWav(string path, float[] samples, int sampleRate)
         {
@@ -506,6 +576,9 @@ namespace GlowingSushi.Editor
             // --- タッチ演出View(バーストパーティクル+効果音) ---
             SetupTouchEffectView();
 
+            // --- BGMプレイヤー(2Dループ再生) ---
+            SetupBgmPlayer();
+
             // --- DIスコープ ---
             var scope = Object.FindFirstObjectByType<GlowingSushiLifetimeScope>();
             if (scope == null)
@@ -605,6 +678,32 @@ namespace GlowingSushi.Editor
             {
                 soundProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(TouchSoundPath);
                 effectSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+        }
+
+        /// <summary>
+        /// BGMプレイヤーをシーンへ構築する。
+        /// 状態を持たない単純なループ再生のためViewModelは介さない(シーン直置きのAudioSource)。
+        /// </summary>
+        static void SetupBgmPlayer()
+        {
+            var existing = GameObject.Find("BgmPlayer");
+            var audioSource = existing != null ? existing.GetComponent<AudioSource>() : null;
+            if (audioSource == null)
+            {
+                var go = existing != null ? existing : new GameObject("BgmPlayer");
+                audioSource = go.AddComponent<AudioSource>();
+            }
+
+            audioSource.loop = true;
+            audioSource.playOnAwake = true;
+            audioSource.spatialBlend = 0f; // 2D再生(位置に依存しない)
+            audioSource.volume = 0.35f;
+
+            // クリップは未設定の場合のみ結線する(手動差し替えを上書きしない)
+            if (audioSource.clip == null)
+            {
+                audioSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>(BgmPath);
             }
         }
 
