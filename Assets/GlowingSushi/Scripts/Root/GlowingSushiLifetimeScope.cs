@@ -55,6 +55,7 @@ namespace GlowingSushi.Root
             builder.Register<SurfaceSpotsViewModel>(Lifetime.Singleton);
             builder.Register<ArPlacementViewModel>(Lifetime.Singleton);
             builder.Register<StatusViewModel>(Lifetime.Singleton);
+            builder.Register<TitleViewModel>(Lifetime.Singleton);
 
             // View層(シーン内のコンポーネントへ注入)
             builder.RegisterComponentInHierarchy<AquariumView>();
@@ -62,6 +63,13 @@ namespace GlowingSushi.Root
             builder.RegisterComponentInHierarchy<SurfaceSpotsView>();
             builder.RegisterComponentInHierarchy<BattleEffectView>();
             builder.RegisterComponentInHierarchy<StatusHudView>();
+
+            // タイトル画面はシーンに存在する場合のみ登録する
+            // (無いシーンではエントリポイントが即時開始する)
+            if (FindFirstObjectByType<TitleView>(FindObjectsInactive.Include) != null)
+            {
+                builder.RegisterComponentInHierarchy<TitleView>();
+            }
 
             // VPS(Immersal)関連。Localizer未設定のシーンではVPS機能を丸ごと無効にする
             if (immersalLocalizer != null)

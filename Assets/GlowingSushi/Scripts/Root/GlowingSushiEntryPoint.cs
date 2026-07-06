@@ -1,5 +1,8 @@
+using System;
 using GlowingSushi.Service;
+using GlowingSushi.View;
 using GlowingSushi.ViewModel;
+using R3;
 using UnityEngine;
 using VContainer;
 using VContainer.Unity;
@@ -11,7 +14,7 @@ namespace GlowingSushi.Root
     /// 毎フレームのTickでSushiSchoolViewModelのシミュレーションを駆動する。
     /// VContainerのPlayerLoopからIStartable/ITickableとして呼ばれる。
     /// </summary>
-    public sealed class GlowingSushiEntryPoint : IStartable, ITickable
+    public sealed class GlowingSushiEntryPoint : IStartable, ITickable, IDisposable
     {
         readonly TouchInputService touchInput;
         readonly ArPlaneDetectionService planeDetection;
@@ -19,8 +22,10 @@ namespace GlowingSushi.Root
         readonly AquariumViewModel aquarium;
         readonly SurfaceSpotsViewModel surfaceSpots;
         readonly StatusViewModel status;
+        readonly TitleViewModel title;
         readonly IObjectResolver resolver;
         VpsPlacementViewModel vpsPlacement;
+        IDisposable startGate;
 
         public GlowingSushiEntryPoint(
             TouchInputService touchInput,
@@ -29,6 +34,7 @@ namespace GlowingSushi.Root
             AquariumViewModel aquarium,
             SurfaceSpotsViewModel surfaceSpots,
             StatusViewModel status,
+            TitleViewModel title,
             IObjectResolver resolver)
         {
             this.touchInput = touchInput;
@@ -37,13 +43,31 @@ namespace GlowingSushi.Root
             this.aquarium = aquarium;
             this.surfaceSpots = surfaceSpots;
             this.status = status;
+            this.title = title;
             this.resolver = resolver;
         }
 
         public void Start()
         {
-            // 購読の開始順: 入力→平面検出→配置(検出イベントを取りこぼさないよう配置購読を先に確立)
             touchInput.Initialize();
+
+            // コンテンツ出現系(平面検出・VPS)はタイトルのタップスタート後に開始する
+            startGate = title.IsStarted
+                .Where(started => started)
+                .Take(1)
+                .Subscribe(_ => StartContent());
+
+            // タイトル画面が無いシーンでは即時開始する
+            if (!resolver.TryResolve<TitleView>(out _))
+            {
+                title.Start();
+            }
+        }
+
+        /// <summary>コンテンツ出現系の初期化。タップスタート後(またはタイトル無しシーンでは起動時)に1回だけ呼ばれる</summary>
+        void StartContent()
+        {
+            // 購読の開始順: 配置→平面検出(検出イベントを取りこぼさないよう配置購読を先に確立)
             placement.Initialize();
             planeDetection.Initialize();
 
@@ -57,6 +81,11 @@ namespace GlowingSushi.Root
                 vpsLocalization.Initialize();
                 status.AttachVps(vpsLocalization, vpsPlacement);
             }
+        }
+
+        public void Dispose()
+        {
+            startGate?.Dispose();
         }
 
         public void Tick()
