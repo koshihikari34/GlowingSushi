@@ -52,17 +52,38 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 - タッチ命中時は命中位置で発光粒子のバーストエフェクトと効果音(水泡ポップ音)を再生する。エフェクトは命中した群れの色にティントする
 
 ### 3.4 VPS 配置(屋外)
-- Immersal でのローカライズ成功後、`XRSpace` 配下に配置したアンカーポイントに寿司群を出現させる
-- アンカーは地上付近(街中を泳ぐ)と空中(浮遊して泳ぐ)の両方を想定する
-- アンカーの実体は「配置ポイント + そこに紐づく寿司群パラメータ」
+- Immersal でのローカライズ成功後、`XRSpace` 配下に配置したアンカーポイントに寿司を出現させる
+- **マップごとに独立した `XRSpace` を持つ**(1つのXRSpaceに複数マップを入れると座標系が混ざるため)。ローカライズはマップ単位で成功し、その時点でそのマップのアンカーにのみ配置する
+- サーバーローカライズ(`ServerLocalization`)を使用(マップファイルの埋め込み不要、ネットワーク必須)
+- Developer Tokenは `Assets/GlowingSushi/Resources/ImmersalToken.txt`(Git管理外)から `ImmersalTokenLoader` が実行時に読み込み、`ImmersalSDK` のAwake前に設定する
+- 使用マップ: bench(148713: 昼寝+散歩) / table(148714: ベイブレード) / vendingmachine(148694: 転がり)
+- アンカー(`VpsAnchorView`)の位置合わせは、XRMapインスペクタのDownloadで点群(Visualization)を取得し、点群を目印にエディタで手動調整する(Y軸=面の法線)
+- 配置タイミングの注意: Immersalの成功イベントは `SceneUpdater` がXRSpaceを動かす**前**に発火するため、イベント時点でアンカー姿勢を読むとずれる。配置はイベントの次フレームで行い、以降も成功のたびにスポット姿勢をアンカーへ追従更新する(ローカライズ精度の向上に追従)
+- 追従は即時反映せず**指数補間で滑らかに**行う(サーバーローカライズは毎回数cm〜数十cmの誤差があり、即時反映だと約2秒ごとに瞬間移動して見えるため)
+- 追従は**配置後 `vpsSettleDuration`(初期値10秒)で停止し、以降は位置を固定**する(バーストモードの高精度化はこの時間内に完了し、それ以降の微小補正はむしろ揺れの原因になるため)
 
 ### 3.5 フォールバック
 - VPS マップが無い、またはローカライズ失敗時は AR Foundation の平面検出のみでローカルに寿司群を出現させ、発光・群泳・近接逃走インタラクションは同様に動作させる
 
 ### 3.6 サウンド
 - タッチ命中時の効果音(水泡ポップ音、3D音源で命中位置から再生)
+- ベイブレード衝突時の効果音(金属的な「キン」音、強度に応じた音量、3D音源)
 - BGM: 環境音パッド風のループ(Am-F-C-G、約24秒、合成生成)を2Dで常時再生。音源は `Assets/GlowingSushi/Audio/AquariumBgm.wav` を差し替えるだけで変更可能
 - BGMは状態を持たない単純再生のためViewModelを介さない(シーン直置きの `BgmPlayer` AudioSource)
+
+### 3.7 場所固有の表面ふるまい(Phase 2)
+実在の物体(自販機・ベンチ・テーブル)の表面に紐づいた寿司のふるまい。**寿司本体は発光しない**(Emission消灯・軌跡パーティクル無効)。
+
+| 種別 | ふるまい | 想定場所(Map ID) |
+|---|---|---|
+| Rolling | 固定の向き(長軸)を保ったまま、その場で左右へ正弦波往復し、移動量に同期して長軸まわりにロールする(子供がおもちゃを転がすようなコロコロ) | 自販機の天面(148694) |
+| Napping | 横倒しで寝て、呼吸のようにゆっくり上下する | ベンチ(148713) |
+| Strolling | 進行方向を揺らしながらゆっくり歩き回る(よちよち揺れ付き) | ベンチ(148713) |
+| Battle | ベイブレードのように高速スピンしながら動き回り、ぶつかると弾性衝突で弾かれ、**火花(HDR発光)**と衝突音が出る | テーブル(148714) |
+
+- 火花・衝突音は寿司本体と違い演出として発光してよい(GlowParticle.matを流用)
+- `PlacementMode`(Aquarium / SurfaceSpotsDemo / Both)で平面検出時に出すコンテンツを切り替えられる(2aの検証は平面上のデモスポット4種で行う)
+- Phase 2bでは、Immersalローカライズ成功後にVPSアンカーの位置・種別からスポットを構築する(`SurfaceSpotsViewModel.AddSpot`)
 
 ## 4. アーキテクチャ設計(MVVM + VContainer + R3)
 
@@ -106,45 +127,57 @@ Assets/GlowingSushi/Scripts/
 - `SushiSchoolViewModel` : 1つの群れ。`SchoolConfig`(アンカー・色・個体数・軌道有無/位相/方向・接近可否)を受けて生成され、`ObservableCollections.R3` で個体群を管理して毎フレーム Boid 計算+軌道アトラクタ追従+バンク回転を駆動する。DI直登録はせず `AquariumViewModel` が生成する。タッチ用に `FindHit(Ray)` / `FleeFrom(個体, 位置)` を公開
 - `SchoolConfig` : 群れ1つ分の生成設定(readonly struct)
 - `TouchHitInfo` : タッチ成功イベントデータ(命中位置+群れの発光色)
-- `ArPlacementViewModel` : AR平面検出状態を公開し、検出時に水族館(複数群れ)の出現をトリガーする
-- `VpsPlacementViewModel` : Immersal ローカライズ状態を公開し、成功時に対応するアンカーの群れ出現をトリガーする(Phase 2)
+- `SurfaceSpotsViewModel` : 表面ふるまいスポット群の管理。デモ配置(2a)/`AddSpot`(2b)、全スポットのTick駆動、Battle衝突イベント `Observable<BattleClashInfo>` の集約
+- `SurfaceSpotViewModel` : スポット1つ分。表面ローカル2D座標系で転がり/昼寝/散歩/ベイブレードの各運動を駆動し、ワールド座標へ変換して個体のReactivePropertyに反映する
+- `BattleClashInfo` : ベイブレード衝突イベントデータ(位置+強度)
+- `VpsPlacementViewModel` : `VpsAnchorView` から登録されたアンカーを保持し、対応マップのローカライズ成功の翌フレームにアンカー姿勢へ表面ふるまいスポットを配置。整定時間内は追従更新する
+- `ArPlacementViewModel` : AR平面検出状態を公開し、`PlacementMode` に応じて水族館/デモスポットの出現をトリガーする
+- `StatusViewModel` : 平面検出・VPSローカライズ統計・スポット配置状況を集約して状態HUDへ公開する
 
 ### 4.5 Service 層(VContainer で DI 登録、ViewModel から注入) — `namespace GlowingSushi.Service`
 - `SushiSpawnService` : 群れの初期配置データ(`SushiSpawnData` 群)の生成(ViewModelの実体化はViewModel層の責務)
 - `TouchInputService` : Input System(EnhancedTouch)のタッチ入力を `Observable<Ray>` として公開(エディタではTouchSimulationでマウスをタッチ扱い)
 - `ArPlaneDetectionService` : `ARPlaneManager.trackablesChanged` を Observable にラップ(Phase 1では初回検出平面のみ通知)
 - `ICameraPoseService` / `CameraPoseService` : ARカメラ(プレイヤー視点)の位置・回転を公開。接近行動でViewModelが参照する
-- `VpsLocalizationService` : Immersal `Localizer` の UnityEvent を R3 の Observable に変換(Phase 2)
+- `VpsLocalizationService` : Immersal `Localizer` の UnityEvent(成功マップID配列・初回成功)を R3 の Observable / ReactiveProperty に変換
 
 ### 4.6 View 層(MonoBehaviour、`[Inject]` で ViewModel を受け取り購読のみ行う) — `namespace GlowingSushi.View`
 - `SushiView` : `Position` / `Rotation` を購読して Transform を更新、`GlowIntensity` を購読して `MaterialPropertyBlock` 経由で Emission を更新(色はViewModelの `GlowColor` × 強度)。軌跡ParticleSystemを群れ色にティント。`State` に応じたアニメーション再生は未実装
 - `AquariumView` : `AquariumViewModel` の群れ一覧と各群れの個体一覧の増減をネスト購読して `SushiView` の生成・破棄を行う。寿司の種類(見た目)はプレハブ配列からランダムに選ぶ(見た目の多様性はView層の関心事とする)
 - `TouchEffectView` : `TouchHit` を購読し、命中位置でバーストパーティクル(群れ色ティント)と効果音を再生する
-- `VpsAnchorView` : `XRSpace` 配下に配置する、街中/空中それぞれのアンカーの見た目上の置き場所(Phase 2)
+- `SurfaceSpotsView` : `SurfaceSpotsViewModel` のスポット・個体の増減をネスト購読して `SushiView` を生成・破棄する
+- `BattleEffectView` : `BattleClash` を購読し、衝突位置で火花パーティクル(線状スパーク、HDR発光)と衝突音を強度連動で再生する
+- `SushiView` は `IsGlowing=false` の個体に対してEmission消灯+軌跡パーティクル無効化を行う
+- `VpsAnchorView` : マップごとの `XRSpace` 配下に置く配置ポイント。マップIDとふるまい種別を持ち、起動時に `VpsPlacementViewModel` へ自己登録する。エディタ配置用のギズモ表示付き
 
 ### 4.7 Root 層(コンポジションルート) — `namespace GlowingSushi.Root`
-- `GlowingSushiLifetimeScope` : VContainerの `LifetimeScope`。全レイヤーの依存関係をここで一括登録する。シーン上の参照(挙動設定アセット・`ARPlaneManager`・ARカメラ)をSerializeFieldで受けてDIに渡す
-- `GlowingSushiEntryPoint` : `IStartable`(起動時に各サービス・ViewModelのInitializeを呼ぶ)/ `ITickable`(毎フレーム `SushiSchoolViewModel.Tick(Time.deltaTime)` を駆動)
+- `GlowingSushiLifetimeScope` : VContainerの `LifetimeScope`。全レイヤーの依存関係をここで一括登録する。シーン上の参照(挙動設定アセット・`ARPlaneManager`・ARカメラ・Immersal `Localizer`)をSerializeFieldで受けてDIに渡す。`Localizer` が設定されたシーンでのみVPS機能(Service/ViewModel)を登録し、`VpsAnchorView` への注入は `autoInjectGameObjects` にXRSpaceを登録して行う
+- `GlowingSushiEntryPoint` : `IStartable`(起動時に各サービス・ViewModelのInitializeを呼ぶ。VPS系は任意解決で初期化)/ `ITickable`(毎フレーム水族館と表面スポットのTickを駆動)
+- `ImmersalTokenLoader` : Git管理外のResourcesからDeveloper Tokenを読み込み、`ImmersalSDK` のAwake前(DefaultExecutionOrder -5000)に設定するブートストラップ
 - ViewModel・ServiceはVContainer型に依存しない。VContainerと全レイヤーを参照してよいのはこのRoot層のみ
 
 ### 4.8 Editor 層(エディタ専用ツール) — `namespace GlowingSushi.Editor`
-- `GlowingSushiSetupMenu` : `GlowingSushi/Setup` メニュー。①マテリアル/プレハブ/設定アセット生成、②シーンセットアップ(ARリグ・DIスコープ構築)、③プロジェクト設定(`ARBackgroundRendererFeature` 追加・iOSカメラ権限)。シーンやプレハブのYAML手書きを避け、参照結線を確実にするためエディタスクリプトで生成する
+- `GlowingSushiSetupMenu` : `GlowingSushi/Setup` メニュー。①マテリアル/プレハブ/設定/効果音/BGM生成、②シーンセットアップ(ARリグ・DIスコープ・各View構築)、③プロジェクト設定(`ARBackgroundRendererFeature` 追加・iOSカメラ権限)、④挙動パラメータの推奨値一括適用、⑤VPSセットアップ(ImmersalSDKプレハブ・マップごとのXRSpace+XRMap+アンカー構築)。シーンやプレハブのYAML手書きを避け、参照結線を確実にするためエディタスクリプトで生成する
 - 寿司モデル `sushi02.fbx` は7貫の盛り合わせ(gari/Salmon_/ebi1/ebi2/negitoro/engawa/maguro)のため、①でガリを除く6貫を1貫ずつ個別プレハブ(`Sushi_maguro.prefab` 等)に分解する。各プレハブはメッシュ中心を原点へ合わせ、最長辺を約0.15mに正規化する
 
-## 5. VPS 運用における未確定事項
+## 5. VPS 運用メモ
 
-- Immersal の App ID・スキャン済み Map ID は**現時点で未取得**。そのため実機での屋外ローカライズ検証は今回のフェーズでは行えない
-- `VpsLocalizationService` はマップ未接続でもアプリがビルド・動作できるよう、フォールバック(平面検出のみでの動作)を仕様として明記する
+- Developer Token・Map ID(bench 148713 / table 148714 / vendingmachine 148694(bench/tableは2026-07-06撮り直し))は取得済み。トークンは `Assets/GlowingSushi/Resources/ImmersalToken.txt`(Git管理外)に保管
+- VPSはXR Simulationでは検証できないため、現地での実機確認が必須
+- `PlacementMode` でフォールバックを制御: マップが読めない環境では平面検出ベースの水族館/デモスポットで動作できる
 
 ## 6. フェーズ分け
 
-- **Phase 1** : ローカル AR 完結(発光 + 群泳 + 接近/逃走インタラクション)。エディタ・実機で検証可能
-- **Phase 2** : Immersal VPS による街中/空中への固定配置。Map ID 取得後に接続・検証
+- **Phase 1(完了)** : ローカル AR 水族館(発光 + 群泳 + 接近/逃走 + タッチ演出 + BGM)
+- **Phase 2a(完了)** : 表面ふるまい(転がり/昼寝/散歩/ベイブレード)のローカル実装。平面検出したデモスポットで検証
+- **Phase 2b(完了)** : Immersal VPSで実在の場所へ配置。自販機(148694)でエンドツーエンド動作確認済み(ローカライズ→天面で転がり→追従→固定)
 
-## 7. 今後の確認事項
+## 7. 今後の課題・確認事項
 
-- VPS アンカー(地上/空中)の配置数・配置方法(エディタでの手動配置か、座標オフセット設定による自動配置か)
-- Immersal アカウント・App ID 取得のスケジュール
+- **ベンチ/テーブルの現地検証**: 新マップ(148713/148714)での再検証待ち。点群品質が不足なら再度撮り直し(ユーザー対応)
+- **マップの誤ローカライズ**: 特徴が似ているため別の場所のマップにローカライズすることがある。対策候補: 端末GPSとマップのWGS84座標(メタデータに含まれる)を比較し、近距離のマップのみをローカライズ対象に絞る
+- iOS実機でのパフォーマンス(粒子数)確認
+- 状態HUDのデバッグ表示を本番用UI(タイトル画面+スキャン誘導表示)へ置き換える
 
 ### 7.1 Phase 1 で採用した挙動パラメータ(暫定)
 
@@ -160,6 +193,12 @@ Assets/GlowingSushi/Scripts/
 | 速度 | 通常 / 最低 / 逃走 / 接近 / 操舵力上限 / 垂直減衰 | 0.45 / 0.2 / 1.5 / 0.8 m/s / 2.0 / 0.6 |
 | 接近専用個体 | 数 / 色 / 判定間隔 / 確率 / 最大時間 / 停止距離 | 2匹 / 金色 / 4s / 0.5 / 6s / 0.5m |
 | タッチ・逃走 | ヒット半径 / 伝播半径 / 逃走時間 | 0.15m / 0.4m / 3s |
+| 表面ふるまい共通 | スポット半径 / 個体数 / 表面オフセット | 0.25m / 3匹 / 0.035m |
+| 転がり | 往復の振れ幅 / 周期 / 接地半径 | 0.12m / 2.0s / 0.04m |
+| 昼寝 | 呼吸周期 / 上下幅 | 3.5s / 0.004m |
+| 散歩 | 速さ / 方向の変わりやすさ | 0.05m/s / 1.2rad/s |
+| ベイブレード | スピン / 移動速さ / 衝突半径 / クールダウン | 720°/s / 0.25m/s / 0.08m / 0.3s |
+| VPS配置 | 追従の整定時間(以降固定) | 10s |
 | 発光 | パルス周期 / 最小 / 最大 / 逃走時係数 | 2s / 0.35 / 1.5 / 1.5 |
 | 軌跡粒子 | 放出密度 / 寿命 / サイズ / 拡散半径 / 初速 / マテリアルHDR強度 | 150個/m / 1.5〜2.5s / 0.01〜0.025m / 0.04m / 0.02〜0.1m/s / ×2.5 |
 

@@ -1,6 +1,7 @@
 using GlowingSushi.Service;
 using GlowingSushi.ViewModel;
 using UnityEngine;
+using VContainer;
 using VContainer.Unity;
 
 namespace GlowingSushi.Root
@@ -16,17 +17,27 @@ namespace GlowingSushi.Root
         readonly ArPlaneDetectionService planeDetection;
         readonly ArPlacementViewModel placement;
         readonly AquariumViewModel aquarium;
+        readonly SurfaceSpotsViewModel surfaceSpots;
+        readonly StatusViewModel status;
+        readonly IObjectResolver resolver;
+        VpsPlacementViewModel vpsPlacement;
 
         public GlowingSushiEntryPoint(
             TouchInputService touchInput,
             ArPlaneDetectionService planeDetection,
             ArPlacementViewModel placement,
-            AquariumViewModel aquarium)
+            AquariumViewModel aquarium,
+            SurfaceSpotsViewModel surfaceSpots,
+            StatusViewModel status,
+            IObjectResolver resolver)
         {
             this.touchInput = touchInput;
             this.planeDetection = planeDetection;
             this.placement = placement;
             this.aquarium = aquarium;
+            this.surfaceSpots = surfaceSpots;
+            this.status = status;
+            this.resolver = resolver;
         }
 
         public void Start()
@@ -35,11 +46,26 @@ namespace GlowingSushi.Root
             touchInput.Initialize();
             placement.Initialize();
             planeDetection.Initialize();
+
+            // VPS(Immersal)はLocalizer設定済みのシーンでのみ登録されているため、任意解決で初期化する
+            if (resolver.TryResolve<VpsPlacementViewModel>(out vpsPlacement))
+            {
+                vpsPlacement.Initialize();
+            }
+            if (resolver.TryResolve<VpsLocalizationService>(out var vpsLocalization))
+            {
+                vpsLocalization.Initialize();
+                status.AttachVps(vpsLocalization, vpsPlacement);
+            }
         }
 
         public void Tick()
         {
-            aquarium.Tick(Time.deltaTime);
+            var deltaTime = Time.deltaTime;
+            aquarium.Tick(deltaTime);
+            surfaceSpots.Tick(deltaTime);
+            // VPSスポットの配置/追従更新(成功イベントの翌フレームに処理される)
+            vpsPlacement?.Tick(deltaTime);
         }
     }
 }

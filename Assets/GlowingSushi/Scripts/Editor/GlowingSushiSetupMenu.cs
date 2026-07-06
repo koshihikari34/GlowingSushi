@@ -1,6 +1,8 @@
 using GlowingSushi.Domain;
 using GlowingSushi.Root;
 using GlowingSushi.View;
+using Immersal;
+using Immersal.XR;
 using Unity.XR.CoreUtils;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -30,6 +32,7 @@ namespace GlowingSushi.Editor
         const string AudioFolder = "Assets/GlowingSushi/Audio";
         const string TouchSoundPath = "Assets/GlowingSushi/Audio/TouchPop.wav";
         const string BgmPath = "Assets/GlowingSushi/Audio/AquariumBgm.wav";
+        const string ClashSoundPath = "Assets/GlowingSushi/Audio/BattleClash.wav";
 
         /// <summary>
         /// sushi02モデル(盛り合わせ)から個別プレハブ化する寿司のノード名。
@@ -61,6 +64,7 @@ namespace GlowingSushi.Editor
             CreateBehaviorSettings();
             CreateTouchSound();
             CreateBgm();
+            CreateBattleClashSound();
 
             AssetDatabase.SaveAssets();
             Debug.Log("[GlowingSushi] アセット生成が完了しました。次に「2. シーンセットアップ」を実行してください。");
@@ -448,6 +452,48 @@ namespace GlowingSushi.Editor
             AssetDatabase.ImportAsset(BgmPath);
         }
 
+        /// <summary>
+        /// ベイブレード衝突音(金属的な「キン」音)を合成して生成する。
+        /// 非整数倍の高次部分音+速い減衰で金属打撃音を模す。差し替え可能。
+        /// </summary>
+        static void CreateBattleClashSound()
+        {
+            if (AssetDatabase.LoadAssetAtPath<AudioClip>(ClashSoundPath) != null) return;
+
+            const int sampleRate = 44100;
+            const float duration = 0.18f;
+            var sampleCount = (int)(sampleRate * duration);
+            var samples = new float[sampleCount];
+
+            // 金属音らしい非整数倍の部分音(周波数, 振幅, 減衰速度)
+            var partials = new[]
+            {
+                (frequency: 2500f, amplitude: 0.5f, decay: 40f),
+                (frequency: 3730f, amplitude: 0.3f, decay: 55f),
+                (frequency: 5170f, amplitude: 0.2f, decay: 70f),
+            };
+
+            var noiseRandom = new System.Random(12345);
+            for (var i = 0; i < sampleCount; i++)
+            {
+                var t = i / (float)sampleRate;
+                var value = 0f;
+                foreach (var (frequency, amplitude, decay) in partials)
+                {
+                    value += Mathf.Sin(2f * Mathf.PI * frequency * t) * amplitude * Mathf.Exp(-decay * t);
+                }
+                // 打撃感を出す最初の数msのノイズ
+                if (t < 0.006f)
+                {
+                    value += ((float)noiseRandom.NextDouble() * 2f - 1f) * 0.4f * (1f - t / 0.006f);
+                }
+                samples[i] = value * 0.7f;
+            }
+
+            WriteWav(ClashSoundPath, samples, sampleRate);
+            AssetDatabase.ImportAsset(ClashSoundPath);
+        }
+
         /// <summary>float配列をモノラル16bit PCMのWAVファイルとして書き出す</summary>
         static void WriteWav(string path, float[] samples, int sampleRate)
         {
@@ -579,6 +625,13 @@ namespace GlowingSushi.Editor
             // --- BGMプレイヤー(2Dループ再生) ---
             SetupBgmPlayer();
 
+            // --- 表面ふるまいView+ベイブレード衝突演出 ---
+            SetupSurfaceSpotsView(prefabs);
+            SetupBattleEffectView();
+
+            // --- 状態HUD(現地検証用のデバッグ表示) ---
+            SetupStatusHud();
+
             // --- DIスコープ ---
             var scope = Object.FindFirstObjectByType<GlowingSushiLifetimeScope>();
             if (scope == null)
@@ -681,6 +734,135 @@ namespace GlowingSushi.Editor
             }
         }
 
+        /// <summary>状態HUD(Canvas+Text)をシーンへ構築する</summary>
+        static void SetupStatusHud()
+        {
+            if (Object.FindFirstObjectByType<StatusHudView>() != null) return;
+
+            var canvasGo = new GameObject("StatusHud");
+            var canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvasGo.AddComponent<UnityEngine.UI.CanvasScaler>().uiScaleMode =
+                UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            var hud = canvasGo.AddComponent<StatusHudView>();
+
+            // 左上に半透明背景+テキスト
+            var panelGo = new GameObject("Panel");
+            panelGo.transform.SetParent(canvasGo.transform, false);
+            var panelImage = panelGo.AddComponent<UnityEngine.UI.Image>();
+            panelImage.color = new Color(0f, 0f, 0f, 0.5f);
+            var panelRect = panelGo.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0f, 1f);
+            panelRect.anchorMax = new Vector2(0f, 1f);
+            panelRect.pivot = new Vector2(0f, 1f);
+            panelRect.anchoredPosition = new Vector2(10f, -50f);
+            panelRect.sizeDelta = new Vector2(620f, 200f);
+
+            var textGo = new GameObject("StatusText");
+            textGo.transform.SetParent(panelGo.transform, false);
+            var text = textGo.AddComponent<UnityEngine.UI.Text>();
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.fontSize = 26;
+            text.color = Color.white;
+            text.alignment = TextAnchor.UpperLeft;
+            var textRect = textGo.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = new Vector2(10f, 5f);
+            textRect.offsetMax = new Vector2(-10f, -5f);
+
+            var so = new SerializedObject(hud);
+            so.FindProperty("statusText").objectReferenceValue = text;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>表面ふるまいスポットViewをシーンへ構築し、寿司プレハブ配列を結線する</summary>
+        static void SetupSurfaceSpotsView(SushiView[] prefabs)
+        {
+            var spotsView = Object.FindFirstObjectByType<SurfaceSpotsView>();
+            if (spotsView == null)
+            {
+                spotsView = new GameObject("SurfaceSpotsView").AddComponent<SurfaceSpotsView>();
+            }
+            var so = new SerializedObject(spotsView);
+            var prefabsProp = so.FindProperty("sushiPrefabs");
+            prefabsProp.arraySize = prefabs.Length;
+            for (var i = 0; i < prefabs.Length; i++)
+            {
+                prefabsProp.GetArrayElementAtIndex(i).objectReferenceValue = prefabs[i];
+            }
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>ベイブレード衝突演出View(火花パーティクル+衝突音)をシーンへ構築する</summary>
+        static void SetupBattleEffectView()
+        {
+            var effectView = Object.FindFirstObjectByType<BattleEffectView>();
+            if (effectView == null)
+            {
+                var go = new GameObject("BattleEffectView");
+                effectView = go.AddComponent<BattleEffectView>();
+
+                // 火花パーティクル(金属衝突らしいオレンジの線状スパーク、HDRマテリアルでBloom発光)
+                var psGo = new GameObject("SparkParticles");
+                psGo.transform.SetParent(go.transform, false);
+                var ps = psGo.AddComponent<ParticleSystem>();
+                var main = ps.main;
+                main.playOnAwake = false;
+                main.loop = false;
+                main.duration = 0.4f;
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(0.2f, 0.45f);
+                main.startSpeed = new ParticleSystem.MinMaxCurve(0.8f, 2.0f);
+                main.startSize = new ParticleSystem.MinMaxCurve(0.004f, 0.012f);
+                main.startColor = new Color(1f, 0.85f, 0.4f); // 火花のオレンジ
+                main.gravityModifier = 0.5f; // 火花は落ちる
+                main.maxParticles = 200;
+
+                var emission = ps.emission;
+                emission.rateOverTime = 0f;
+                emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 25) });
+
+                var shape = ps.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Sphere;
+                shape.radius = 0.01f;
+
+                var colorOverLifetime = ps.colorOverLifetime;
+                colorOverLifetime.enabled = true;
+                var gradient = new Gradient();
+                gradient.SetKeys(
+                    new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                    new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+                colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
+
+                // 進行方向に伸ばして「線状の火花」に見せる
+                var renderer = psGo.GetComponent<ParticleSystemRenderer>();
+                renderer.sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>(ParticleMaterialPath);
+                renderer.renderMode = ParticleSystemRenderMode.Stretch;
+                renderer.lengthScale = 4f;
+
+                // 衝突音(3D音源)
+                var audioSource = go.AddComponent<AudioSource>();
+                audioSource.playOnAwake = false;
+                audioSource.spatialBlend = 1f;
+
+                var newSo = new SerializedObject(effectView);
+                newSo.FindProperty("sparkParticles").objectReferenceValue = ps;
+                newSo.FindProperty("audioSource").objectReferenceValue = audioSource;
+                newSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            // 衝突音のアセット参照(未設定の場合のみ結線を試みる)
+            var effectSo = new SerializedObject(effectView);
+            var soundProp = effectSo.FindProperty("clashSound");
+            if (soundProp.objectReferenceValue == null)
+            {
+                soundProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(ClashSoundPath);
+                effectSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+        }
+
         /// <summary>
         /// BGMプレイヤーをシーンへ構築する。
         /// 状態を持たない単純なループ再生のためViewModelは介さない(シーン直置きのAudioSource)。
@@ -772,6 +954,176 @@ namespace GlowingSushi.Editor
             so.ApplyModifiedPropertiesWithoutUndo();
 
             EditorUtility.SetDirty(rendererData);
+        }
+
+        // ------------------------------------------------------------
+        // 5. VPSセットアップ(Immersal)
+        // ------------------------------------------------------------
+
+        const string ImmersalPrefabPath = "Packages/com.immersal.core/Runtime/Resources/Prefabs/ImmersalSDK.prefab";
+
+        /// <summary>マップ定義: (マップID, 名前, そのマップに置くアンカーの[名前+種別]一覧)</summary>
+        static readonly (int mapId, string mapName, (string anchorName, SurfaceBehaviorType type)[] anchors)[] VpsMaps =
+        {
+            // 2026-07-06: bench/tableは撮り直しにより新IDへ更新(旧: 148692/148693)
+            (148713, "bench", new[]
+            {
+                ("BenchNapAnchor", SurfaceBehaviorType.Napping),
+                ("BenchStrollAnchor", SurfaceBehaviorType.Strolling),
+            }),
+            (148714, "table", new[]
+            {
+                ("TableBattleAnchor", SurfaceBehaviorType.Battle),
+            }),
+            (148694, "vendingmachine", new[]
+            {
+                ("VendingRollingAnchor", SurfaceBehaviorType.Rolling),
+            }),
+        };
+
+        /// <summary>
+        /// ImmersalのVPS構成をシーンへ構築する:
+        /// ImmersalSDKプレハブ・トークンローダー・マップごとのXRSpace+XRMap+アンカー。
+        /// 実行後、各XRMapのインスペクタからDownload(Visualization)で点群を落とし、
+        /// 点群を目印にアンカーの位置を調整すること。
+        /// </summary>
+        [MenuItem("GlowingSushi/Setup/5. VPSセットアップ(Immersal)")]
+        public static void SetupVps()
+        {
+            var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+
+            // --- ImmersalSDK本体(プレハブ) ---
+            var sdk = Object.FindFirstObjectByType<ImmersalSDK>();
+            if (sdk == null)
+            {
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ImmersalPrefabPath);
+                if (prefab == null)
+                {
+                    Debug.LogError($"[GlowingSushi] ImmersalSDKプレハブが見つかりません: {ImmersalPrefabPath}");
+                    return;
+                }
+                var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+                sdk = instance.GetComponent<ImmersalSDK>();
+            }
+
+            var serverLocalization = sdk.GetComponentInChildren<ServerLocalization>(true);
+            var localizer = sdk.GetComponentInChildren<Localizer>(true);
+            if (serverLocalization == null || localizer == null)
+            {
+                Debug.LogError("[GlowingSushi] ImmersalSDK配下にServerLocalization/Localizerが見つかりません");
+                return;
+            }
+
+            // --- トークンローダー(Git管理外のトークンを実行時に読み込む) ---
+            var tokenLoader = Object.FindFirstObjectByType<ImmersalTokenLoader>();
+            if (tokenLoader == null)
+            {
+                tokenLoader = new GameObject("ImmersalTokenLoader").AddComponent<ImmersalTokenLoader>();
+            }
+            var loaderSo = new SerializedObject(tokenLoader);
+            loaderSo.FindProperty("immersalSdk").objectReferenceValue = sdk;
+            loaderSo.ApplyModifiedPropertiesWithoutUndo();
+
+            // --- マップごとのXRSpace+XRMap+アンカー ---
+            var spaceObjects = new System.Collections.Generic.List<GameObject>();
+            foreach (var (mapId, mapName, anchors) in VpsMaps)
+            {
+                var spaceName = $"XR Space {mapName}";
+                var spaceGo = GameObject.Find(spaceName);
+                if (spaceGo == null)
+                {
+                    spaceGo = new GameObject(spaceName);
+                    spaceGo.AddComponent<XRSpace>();
+                }
+                spaceObjects.Add(spaceGo);
+
+                // XRMap: 無ければ新規作成、あればIDを差し替え(マップ撮り直しでIDが変わった場合に対応)
+                var map = spaceGo.GetComponentInChildren<XRMap>(true);
+                if (map == null)
+                {
+                    var mapGo = new GameObject($"XR Map {mapId}-{mapName}");
+                    mapGo.transform.SetParent(spaceGo.transform, false);
+                    map = mapGo.AddComponent<XRMap>();
+                }
+                else if (map.mapId != mapId && map.Visualization != null)
+                {
+                    // 旧マップの点群は座標系が異なるため削除する(新IDで再ダウンロードする)
+                    map.RemoveVisualization();
+                }
+                var mapSo = new SerializedObject(map);
+                mapSo.FindProperty("m_MapId").intValue = mapId;
+                mapSo.FindProperty("m_MapName").stringValue = mapName;
+                mapSo.FindProperty("IsConfigured").boolValue = true;
+                mapSo.FindProperty("m_LocalizationMethodObject").objectReferenceValue = serverLocalization;
+                mapSo.ApplyModifiedPropertiesWithoutUndo();
+                map.gameObject.name = $"XR Map {mapId}-{mapName}";
+
+                // アンカー: 無ければ作成、あればmapIdと種別を更新(位置は保持される)
+                foreach (var (anchorName, type) in anchors)
+                {
+                    var anchorTransform = spaceGo.transform.Find(anchorName);
+                    VpsAnchorView anchor;
+                    if (anchorTransform == null)
+                    {
+                        var anchorGo = new GameObject(anchorName);
+                        anchorGo.transform.SetParent(spaceGo.transform, false);
+                        anchor = anchorGo.AddComponent<VpsAnchorView>();
+                    }
+                    else
+                    {
+                        anchor = anchorTransform.GetComponent<VpsAnchorView>();
+                        if (anchor == null)
+                        {
+                            anchor = anchorTransform.gameObject.AddComponent<VpsAnchorView>();
+                        }
+                    }
+                    var anchorSo = new SerializedObject(anchor);
+                    anchorSo.FindProperty("mapId").intValue = mapId;
+                    anchorSo.FindProperty("behaviorType").enumValueIndex = (int)type;
+                    anchorSo.ApplyModifiedPropertiesWithoutUndo();
+                }
+            }
+
+            // --- LifetimeScopeへの結線(Localizer参照+アンカーへの注入対象登録) ---
+            var scope = Object.FindFirstObjectByType<GlowingSushiLifetimeScope>();
+            if (scope != null)
+            {
+                var scopeSo = new SerializedObject(scope);
+                scopeSo.FindProperty("immersalLocalizer").objectReferenceValue = localizer;
+
+                // XRSpace配下のVpsAnchorViewへ[Inject]が効くようautoInjectGameObjectsへ登録
+                var autoInject = scopeSo.FindProperty("autoInjectGameObjects");
+                foreach (var spaceGo in spaceObjects)
+                {
+                    var exists = false;
+                    for (var i = 0; i < autoInject.arraySize; i++)
+                    {
+                        if (autoInject.GetArrayElementAtIndex(i).objectReferenceValue == spaceGo)
+                        {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists)
+                    {
+                        autoInject.arraySize++;
+                        autoInject.GetArrayElementAtIndex(autoInject.arraySize - 1).objectReferenceValue = spaceGo;
+                    }
+                }
+                scopeSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+            else
+            {
+                Debug.LogError("[GlowingSushi] GlowingSushiLifetimeScopeがシーンにありません。先に「2. シーンセットアップ」を実行してください。");
+            }
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            Debug.Log(
+                "[GlowingSushi] VPSセットアップ完了。次の手順:\n" +
+                "1. 各「XR Map」を選択しインスペクタのDownloadでVisualization(点群)を取得\n" +
+                "2. 点群を目印に各アンカー(ギズモ表示あり)を実際の面の上へ移動・回転(Y軸=面の法線)\n" +
+                "3. LifetimeScopeのPlacement Modeを「None」にして現地ビルド(平面デモを止めてVPSのみにする場合)");
         }
 
         // ------------------------------------------------------------

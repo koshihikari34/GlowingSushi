@@ -32,13 +32,6 @@ namespace GlowingSushi.View
         {
             glowColor = viewModel.GlowColor;
 
-            // 軌跡パーティクルを群れの色にティントする
-            if (trailParticles != null)
-            {
-                var main = trailParticles.main;
-                main.startColor = glowColor;
-            }
-
             viewModel.Position
                 .Subscribe(position => transform.position = position)
                 .AddTo(this);
@@ -47,9 +40,28 @@ namespace GlowingSushi.View
                 .Subscribe(rotation => transform.rotation = rotation)
                 .AddTo(this);
 
-            viewModel.GlowIntensity
-                .Subscribe(ApplyGlow)
-                .AddTo(this);
+            if (viewModel.IsGlowing)
+            {
+                // 軌跡パーティクルを群れの色にティントする
+                if (trailParticles != null)
+                {
+                    var main = trailParticles.main;
+                    main.startColor = glowColor;
+                }
+
+                viewModel.GlowIntensity
+                    .Subscribe(ApplyGlow)
+                    .AddTo(this);
+            }
+            else
+            {
+                // 発光しない寿司: Emissionを消灯し、軌跡パーティクルも止める
+                ApplyGlow(0f);
+                if (trailParticles != null)
+                {
+                    trailParticles.gameObject.SetActive(false);
+                }
+            }
 
             // State購読は未使用(状態別アニメーションを入れる際にここへ追加する)
         }
