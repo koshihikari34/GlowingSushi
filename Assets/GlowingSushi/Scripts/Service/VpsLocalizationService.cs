@@ -53,6 +53,15 @@ namespace GlowingSushi.Service
         public void Initialize()
         {
             if (initialized) return;
+
+            // エディタ等でImmersalSDKごと無効化されている場合は何もしない
+            // (ImmersalSDK.Instanceへアクセスするとエラーログが出るため先に判定する)
+            if (localizer == null || !localizer.gameObject.activeInHierarchy)
+            {
+                sdkStatus.Value = "無効";
+                return;
+            }
+
             initialized = true;
 
             localizer.OnFirstSuccessfulLocalization.AddListener(OnFirstSuccess);

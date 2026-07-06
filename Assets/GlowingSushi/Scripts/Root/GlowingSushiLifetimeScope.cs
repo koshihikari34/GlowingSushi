@@ -49,6 +49,7 @@ namespace GlowingSushi.Root
             builder.Register<ArPlaneDetectionService>(Lifetime.Singleton);
             builder.Register<TouchInputService>(Lifetime.Singleton);
             builder.Register<SushiSpawnService>(Lifetime.Singleton);
+            builder.Register<SceneNavigationService>(Lifetime.Singleton);
 
             // ViewModel層(School/SpotのVMは親VMが生成するため登録しない)
             builder.Register<AquariumViewModel>(Lifetime.Singleton);

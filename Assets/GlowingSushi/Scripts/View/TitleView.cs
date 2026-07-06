@@ -160,8 +160,8 @@ namespace GlowingSushi.View
 
             if (t >= startDuration)
             {
-                if (maguro != null) Destroy(maguro.gameObject);
-                Destroy(gameObject); // タイトルCanvasごと破棄
+                enabled = false; // 多重遷移の防止
+                viewModel.CompleteIntro(); // メインシーンへ遷移(タイトルシーンごと破棄される)
             }
         }
 

@@ -1127,16 +1127,80 @@ namespace GlowingSushi.Editor
         }
 
         // ------------------------------------------------------------
-        // 6. タイトル画面セットアップ
+        // 6. タイトルシーンセットアップ
         // ------------------------------------------------------------
 
+        const string TitleScenePath = "Assets/GlowingSushi/Scenes/Title.unity";
+
         /// <summary>
-        /// タイトル画面(タイトル+浮遊マグロ+点滅タップスタート+全画面タップボタン)をシーンへ構築する。
+        /// 独立したタイトルシーン(Title.unity)を構築する。
+        /// タイトル+浮遊マグロ+点滅タップスタートを表示し、演出後にMainシーンへ遷移する。
+        /// あわせてMainシーンから旧タイトルUIを掃除し、ビルド設定をTitle→Mainの順に登録する。
         /// </summary>
-        [MenuItem("GlowingSushi/Setup/6. タイトル画面セットアップ")]
+        [MenuItem("GlowingSushi/Setup/6. タイトルシーンセットアップ")]
         public static void SetupTitleScreen()
         {
-            var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            // --- Mainシーンから旧タイトルUI(同一シーン方式の名残)を掃除 ---
+            var mainScene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            var staleCanvas = GameObject.Find("TitleCanvas");
+            if (staleCanvas != null) Object.DestroyImmediate(staleCanvas);
+            var staleEventSystem = Object.FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>();
+            if (staleEventSystem != null) Object.DestroyImmediate(staleEventSystem.gameObject);
+            EditorSceneManager.MarkSceneDirty(mainScene);
+            EditorSceneManager.SaveScene(mainScene);
+
+            // --- タイトルシーンを開く(無ければ新規作成) ---
+            var titleScene = AssetDatabase.LoadAssetAtPath<SceneAsset>(TitleScenePath) != null
+                ? EditorSceneManager.OpenScene(TitleScenePath, OpenSceneMode.Single)
+                : EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            EnsureTitleSceneContent();
+
+            EditorSceneManager.MarkSceneDirty(titleScene);
+            EditorSceneManager.SaveScene(titleScene, TitleScenePath);
+
+            // --- ビルド設定: Title→Mainの順(起動シーン=タイトル) ---
+            EditorBuildSettings.scenes = new[]
+            {
+                new EditorBuildSettingsScene(TitleScenePath, true),
+                new EditorBuildSettingsScene(ScenePath, true),
+            };
+
+            var titleView = Object.FindFirstObjectByType<TitleView>(FindObjectsInactive.Include);
+            var maguroWired = titleView != null
+                && new SerializedObject(titleView).FindProperty("maguroPrefab").objectReferenceValue != null;
+            Debug.Log(
+                "[GlowingSushi] タイトルシーンセットアップ完了(Title.unityを開いています)。" +
+                $"maguroPrefab={(maguroWired ? "OK" : "未設定(手動でSushi_maguro.prefabをドラッグしてください)")}");
+        }
+
+        /// <summary>タイトルシーンに必要なオブジェクト一式を構築する(再実行しても安全)</summary>
+        static void EnsureTitleSceneContent()
+        {
+            // カメラ(タイトルは濃紺の背景+マグロの3D表示)
+            if (Camera.main == null)
+            {
+                var cameraGo = new GameObject("Main Camera") { tag = "MainCamera" };
+                var camera = cameraGo.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = new Color(0.02f, 0.03f, 0.08f); // 深海のような濃紺
+                cameraGo.AddComponent<AudioListener>();
+            }
+
+            // ライト(マグロのモデル表示用)
+            if (Object.FindFirstObjectByType<Light>() == null)
+            {
+                var lightGo = new GameObject("Directional Light");
+                var light = lightGo.AddComponent<Light>();
+                light.type = LightType.Directional;
+                lightGo.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+            }
+
+            // DIスコープ(タイトル専用の最小構成)
+            if (Object.FindFirstObjectByType<TitleLifetimeScope>() == null)
+            {
+                new GameObject("TitleLifetimeScope").AddComponent<TitleLifetimeScope>();
+            }
 
             // uGUIボタンにはEventSystem(新Input System用モジュール)が必要
             if (Object.FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
@@ -1221,13 +1285,6 @@ namespace GlowingSushi.Editor
                     AssetDatabase.LoadAssetAtPath<SushiView>($"{PrefabFolder}/Sushi_maguro.prefab");
                 titleSo.ApplyModifiedPropertiesWithoutUndo();
             }
-
-            EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene);
-
-            var maguroWired = new SerializedObject(titleView).FindProperty("maguroPrefab").objectReferenceValue != null;
-            Debug.Log(
-                $"[GlowingSushi] タイトル画面セットアップ完了。maguroPrefab={(maguroWired ? "OK" : "未設定(手動でSushi_maguro.prefabをドラッグしてください)")}");
         }
 
         // ------------------------------------------------------------
