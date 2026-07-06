@@ -48,6 +48,20 @@ MonoBehaviour:
   touchHitRadius: 0.15
   fleePropagationRadius: 0.4
   fleeDuration: 3
+  spotRadius: 0.25
+  membersPerSpot: 3
+  surfaceOffset: 0.035
+  rollAmplitude: 0.12
+  rollPeriod: 2
+  rollContactRadius: 0.04
+  napBreathPeriod: 3.5
+  napBreathAmplitude: 0.004
+  strollSpeed: 0.05
+  strollTurnRate: 1.2
+  spinSpeed: 720
+  battleMoveSpeed: 0.25
+  battleHitRadius: 0.08
+  battleClashCooldown: 0.3
   glowPulsePeriod: 2
   glowMinIntensity: 0.35
   glowMaxIntensity: 1.5
