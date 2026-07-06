@@ -56,7 +56,7 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 - **マップごとに独立した `XRSpace` を持つ**(1つのXRSpaceに複数マップを入れると座標系が混ざるため)。ローカライズはマップ単位で成功し、その時点でそのマップのアンカーにのみ配置する
 - サーバーローカライズ(`ServerLocalization`)を使用(マップファイルの埋め込み不要、ネットワーク必須)
 - Developer Tokenは `Assets/GlowingSushi/Resources/ImmersalToken.txt`(Git管理外)から `ImmersalTokenLoader` が実行時に読み込み、`ImmersalSDK` のAwake前に設定する
-- 使用マップ: bench(148692: 昼寝+散歩) / table(148693: ベイブレード) / vendingmachine(148694: 転がり)
+- 使用マップ: bench(148713: 昼寝+散歩) / table(148714: ベイブレード) / vendingmachine(148694: 転がり)
 - アンカー(`VpsAnchorView`)の位置合わせは、XRMapインスペクタのDownloadで点群(Visualization)を取得し、点群を目印にエディタで手動調整する(Y軸=面の法線)
 - 配置タイミングの注意: Immersalの成功イベントは `SceneUpdater` がXRSpaceを動かす**前**に発火するため、イベント時点でアンカー姿勢を読むとずれる。配置はイベントの次フレームで行い、以降も成功のたびにスポット姿勢をアンカーへ追従更新する(ローカライズ精度の向上に追従)
 - 追従は即時反映せず**指数補間で滑らかに**行う(サーバーローカライズは毎回数cm〜数十cmの誤差があり、即時反映だと約2秒ごとに瞬間移動して見えるため)
@@ -77,9 +77,9 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 | 種別 | ふるまい | 想定場所(Map ID) |
 |---|---|---|
 | Rolling | 固定の向き(長軸)を保ったまま、その場で左右へ正弦波往復し、移動量に同期して長軸まわりにロールする(子供がおもちゃを転がすようなコロコロ) | 自販機の天面(148694) |
-| Napping | 横倒しで寝て、呼吸のようにゆっくり上下する | ベンチ(148692) |
-| Strolling | 進行方向を揺らしながらゆっくり歩き回る(よちよち揺れ付き) | ベンチ(148692) |
-| Battle | ベイブレードのように高速スピンしながら動き回り、ぶつかると弾性衝突で弾かれ、**火花(HDR発光)**と衝突音が出る | テーブル(148693) |
+| Napping | 横倒しで寝て、呼吸のようにゆっくり上下する | ベンチ(148713) |
+| Strolling | 進行方向を揺らしながらゆっくり歩き回る(よちよち揺れ付き) | ベンチ(148713) |
+| Battle | ベイブレードのように高速スピンしながら動き回り、ぶつかると弾性衝突で弾かれ、**火花(HDR発光)**と衝突音が出る | テーブル(148714) |
 
 - 火花・衝突音は寿司本体と違い演出として発光してよい(GlowParticle.matを流用)
 - `PlacementMode`(Aquarium / SurfaceSpotsDemo / Both)で平面検出時に出すコンテンツを切り替えられる(2aの検証は平面上のデモスポット4種で行う)
@@ -130,9 +130,9 @@ Assets/GlowingSushi/Scripts/
 - `SurfaceSpotsViewModel` : 表面ふるまいスポット群の管理。デモ配置(2a)/`AddSpot`(2b)、全スポットのTick駆動、Battle衝突イベント `Observable<BattleClashInfo>` の集約
 - `SurfaceSpotViewModel` : スポット1つ分。表面ローカル2D座標系で転がり/昼寝/散歩/ベイブレードの各運動を駆動し、ワールド座標へ変換して個体のReactivePropertyに反映する
 - `BattleClashInfo` : ベイブレード衝突イベントデータ(位置+強度)
-- `VpsPlacementViewModel` : `VpsAnchorView` から登録されたアンカーを保持し、対応マップのローカライズ成功時(マップ単位・1回のみ)にアンカー姿勢へ表面ふるまいスポットを配置する
-- `ArPlacementViewModel` : AR平面検出状態を公開し、検出時に水族館(複数群れ)の出現をトリガーする
-- `VpsPlacementViewModel` : Immersal ローカライズ状態を公開し、成功時に対応するアンカーの群れ出現をトリガーする(Phase 2)
+- `VpsPlacementViewModel` : `VpsAnchorView` から登録されたアンカーを保持し、対応マップのローカライズ成功の翌フレームにアンカー姿勢へ表面ふるまいスポットを配置。整定時間内は追従更新する
+- `ArPlacementViewModel` : AR平面検出状態を公開し、`PlacementMode` に応じて水族館/デモスポットの出現をトリガーする
+- `StatusViewModel` : 平面検出・VPSローカライズ統計・スポット配置状況を集約して状態HUDへ公開する
 
 ### 4.5 Service 層(VContainer で DI 登録、ViewModel から注入) — `namespace GlowingSushi.Service`
 - `SushiSpawnService` : 群れの初期配置データ(`SushiSpawnData` 群)の生成(ViewModelの実体化はViewModel層の責務)
@@ -162,7 +162,7 @@ Assets/GlowingSushi/Scripts/
 
 ## 5. VPS 運用メモ
 
-- Developer Token・Map ID(bench 148692 / table 148693 / vendingmachine 148694)は取得済み。トークンは `Assets/GlowingSushi/Resources/ImmersalToken.txt`(Git管理外)に保管
+- Developer Token・Map ID(bench 148713 / table 148714 / vendingmachine 148694(bench/tableは2026-07-06撮り直し))は取得済み。トークンは `Assets/GlowingSushi/Resources/ImmersalToken.txt`(Git管理外)に保管
 - VPSはXR Simulationでは検証できないため、現地での実機確認が必須
 - `PlacementMode` でフォールバックを制御: マップが読めない環境では平面検出ベースの水族館/デモスポットで動作できる
 
@@ -170,13 +170,14 @@ Assets/GlowingSushi/Scripts/
 
 - **Phase 1(完了)** : ローカル AR 水族館(発光 + 群泳 + 接近/逃走 + タッチ演出 + BGM)
 - **Phase 2a(完了)** : 表面ふるまい(転がり/昼寝/散歩/ベイブレード)のローカル実装。平面検出したデモスポットで検証
-- **Phase 2b(実装済み・現地検証待ち)** : Immersal VPSで実在の場所(ベンチ/テーブル/自販機)へ配置
+- **Phase 2b(完了)** : Immersal VPSで実在の場所へ配置。自販機(148694)でエンドツーエンド動作確認済み(ローカライズ→天面で転がり→追従→固定)
 
-## 7. 今後の確認事項
+## 7. 今後の課題・確認事項
 
-- 各アンカーの正確な位置合わせ(XRMapの点群ダウンロード→エディタで手動調整)
-- 現地でのローカライズ精度・スポットの見え方の検証
+- **ベンチ/テーブルの現地検証**: 新マップ(148713/148714)での再検証待ち。点群品質が不足なら再度撮り直し(ユーザー対応)
+- **マップの誤ローカライズ**: 特徴が似ているため別の場所のマップにローカライズすることがある。対策候補: 端末GPSとマップのWGS84座標(メタデータに含まれる)を比較し、近距離のマップのみをローカライズ対象に絞る
 - iOS実機でのパフォーマンス(粒子数)確認
+- 状態HUDのデバッグ表示を本番用UI(タイトル画面+スキャン誘導表示)へ置き換える
 
 ### 7.1 Phase 1 で採用した挙動パラメータ(暫定)
 
