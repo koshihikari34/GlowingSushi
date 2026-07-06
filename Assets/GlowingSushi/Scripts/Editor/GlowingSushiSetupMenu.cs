@@ -1127,6 +1127,110 @@ namespace GlowingSushi.Editor
         }
 
         // ------------------------------------------------------------
+        // 6. タイトル画面セットアップ
+        // ------------------------------------------------------------
+
+        /// <summary>
+        /// タイトル画面(タイトル+浮遊マグロ+点滅タップスタート+全画面タップボタン)をシーンへ構築する。
+        /// </summary>
+        [MenuItem("GlowingSushi/Setup/6. タイトル画面セットアップ")]
+        public static void SetupTitleScreen()
+        {
+            var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+
+            // uGUIボタンにはEventSystem(新Input System用モジュール)が必要
+            if (Object.FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
+            {
+                var eventSystemGo = new GameObject("EventSystem");
+                eventSystemGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
+                eventSystemGo.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+            }
+
+            var titleView = Object.FindFirstObjectByType<TitleView>(FindObjectsInactive.Include);
+            if (titleView == null)
+            {
+                var canvasGo = new GameObject("TitleCanvas");
+                var canvas = canvasGo.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 10; // 状態HUDより手前
+                canvasGo.AddComponent<UnityEngine.UI.CanvasScaler>().uiScaleMode =
+                    UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                canvasGo.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+                var canvasGroup = canvasGo.AddComponent<CanvasGroup>();
+                titleView = canvasGo.AddComponent<TitleView>();
+
+                // 全画面の透明タップボタン
+                var buttonGo = new GameObject("TapButton");
+                buttonGo.transform.SetParent(canvasGo.transform, false);
+                var buttonImage = buttonGo.AddComponent<UnityEngine.UI.Image>();
+                buttonImage.color = new Color(0f, 0f, 0f, 0f); // 透明だがレイキャストは受ける
+                var button = buttonGo.AddComponent<UnityEngine.UI.Button>();
+                button.transition = UnityEngine.UI.Selectable.Transition.None;
+                var buttonRect = buttonGo.GetComponent<RectTransform>();
+                buttonRect.anchorMin = Vector2.zero;
+                buttonRect.anchorMax = Vector2.one;
+                buttonRect.offsetMin = Vector2.zero;
+                buttonRect.offsetMax = Vector2.zero;
+
+                // タイトルText(上部)
+                var titleTextGo = new GameObject("TitleText");
+                titleTextGo.transform.SetParent(canvasGo.transform, false);
+                var titleText = titleTextGo.AddComponent<UnityEngine.UI.Text>();
+                titleText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                titleText.fontSize = 72;
+                titleText.fontStyle = FontStyle.Bold;
+                titleText.color = Color.white;
+                titleText.alignment = TextAnchor.MiddleCenter;
+                titleText.horizontalOverflow = HorizontalWrapMode.Overflow;
+                titleText.text = "GlowingSushi";
+                var titleRect = titleTextGo.GetComponent<RectTransform>();
+                titleRect.anchorMin = new Vector2(0.5f, 0.75f);
+                titleRect.anchorMax = new Vector2(0.5f, 0.75f);
+                titleRect.sizeDelta = new Vector2(700f, 120f);
+
+                // タップスタートText(下部、点滅はTitleViewが制御)
+                var tapTextGo = new GameObject("TapStartText");
+                tapTextGo.transform.SetParent(canvasGo.transform, false);
+                var tapText = tapTextGo.AddComponent<UnityEngine.UI.Text>();
+                tapText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                tapText.fontSize = 42;
+                tapText.color = Color.white;
+                tapText.alignment = TextAnchor.MiddleCenter;
+                tapText.horizontalOverflow = HorizontalWrapMode.Overflow;
+                tapText.text = "タップスタート";
+                var tapRect = tapTextGo.GetComponent<RectTransform>();
+                tapRect.anchorMin = new Vector2(0.5f, 0.18f);
+                tapRect.anchorMax = new Vector2(0.5f, 0.18f);
+                tapRect.sizeDelta = new Vector2(500f, 80f);
+
+                // 参照の結線
+                var so = new SerializedObject(titleView);
+                so.FindProperty("titleText").objectReferenceValue = titleText;
+                so.FindProperty("tapStartText").objectReferenceValue = tapText;
+                so.FindProperty("tapButton").objectReferenceValue = button;
+                so.FindProperty("canvasGroup").objectReferenceValue = canvasGroup;
+                so.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            // マグロプレハブ(アセット参照。未設定の場合のみ結線を試みる)
+            var titleSo = new SerializedObject(titleView);
+            var maguroProp = titleSo.FindProperty("maguroPrefab");
+            if (maguroProp.objectReferenceValue == null)
+            {
+                maguroProp.objectReferenceValue =
+                    AssetDatabase.LoadAssetAtPath<SushiView>($"{PrefabFolder}/Sushi_maguro.prefab");
+                titleSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+
+            var maguroWired = new SerializedObject(titleView).FindProperty("maguroPrefab").objectReferenceValue != null;
+            Debug.Log(
+                $"[GlowingSushi] タイトル画面セットアップ完了。maguroPrefab={(maguroWired ? "OK" : "未設定(手動でSushi_maguro.prefabをドラッグしてください)")}");
+        }
+
+        // ------------------------------------------------------------
         // 4. 挙動パラメータを推奨値へ更新
         // ------------------------------------------------------------
         /// <summary>
