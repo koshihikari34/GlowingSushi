@@ -965,12 +965,13 @@ namespace GlowingSushi.Editor
         /// <summary>マップ定義: (マップID, 名前, そのマップに置くアンカーの[名前+種別]一覧)</summary>
         static readonly (int mapId, string mapName, (string anchorName, SurfaceBehaviorType type)[] anchors)[] VpsMaps =
         {
-            (148692, "bench", new[]
+            // 2026-07-06: bench/tableは撮り直しにより新IDへ更新(旧: 148692/148693)
+            (148713, "bench", new[]
             {
                 ("BenchNapAnchor", SurfaceBehaviorType.Napping),
                 ("BenchStrollAnchor", SurfaceBehaviorType.Strolling),
             }),
-            (148693, "table", new[]
+            (148714, "table", new[]
             {
                 ("TableBattleAnchor", SurfaceBehaviorType.Battle),
             }),
@@ -1036,28 +1037,46 @@ namespace GlowingSushi.Editor
                 }
                 spaceObjects.Add(spaceGo);
 
-                // XRMap(サーバーローカライズなのでマップファイル埋め込みは不要)
-                var mapGoName = $"XR Map {mapId}-{mapName}";
-                if (spaceGo.transform.Find(mapGoName) == null)
+                // XRMap: 無ければ新規作成、あればIDを差し替え(マップ撮り直しでIDが変わった場合に対応)
+                var map = spaceGo.GetComponentInChildren<XRMap>(true);
+                if (map == null)
                 {
-                    var mapGo = new GameObject(mapGoName);
+                    var mapGo = new GameObject($"XR Map {mapId}-{mapName}");
                     mapGo.transform.SetParent(spaceGo.transform, false);
-                    var map = mapGo.AddComponent<XRMap>();
-                    var mapSo = new SerializedObject(map);
-                    mapSo.FindProperty("m_MapId").intValue = mapId;
-                    mapSo.FindProperty("m_MapName").stringValue = mapName;
-                    mapSo.FindProperty("IsConfigured").boolValue = true;
-                    mapSo.FindProperty("m_LocalizationMethodObject").objectReferenceValue = serverLocalization;
-                    mapSo.ApplyModifiedPropertiesWithoutUndo();
+                    map = mapGo.AddComponent<XRMap>();
                 }
+                else if (map.mapId != mapId && map.Visualization != null)
+                {
+                    // 旧マップの点群は座標系が異なるため削除する(新IDで再ダウンロードする)
+                    map.RemoveVisualization();
+                }
+                var mapSo = new SerializedObject(map);
+                mapSo.FindProperty("m_MapId").intValue = mapId;
+                mapSo.FindProperty("m_MapName").stringValue = mapName;
+                mapSo.FindProperty("IsConfigured").boolValue = true;
+                mapSo.FindProperty("m_LocalizationMethodObject").objectReferenceValue = serverLocalization;
+                mapSo.ApplyModifiedPropertiesWithoutUndo();
+                map.gameObject.name = $"XR Map {mapId}-{mapName}";
 
-                // アンカー(位置はマップ点群を見ながら手動調整する前提で原点に置く)
+                // アンカー: 無ければ作成、あればmapIdと種別を更新(位置は保持される)
                 foreach (var (anchorName, type) in anchors)
                 {
-                    if (spaceGo.transform.Find(anchorName) != null) continue;
-                    var anchorGo = new GameObject(anchorName);
-                    anchorGo.transform.SetParent(spaceGo.transform, false);
-                    var anchor = anchorGo.AddComponent<VpsAnchorView>();
+                    var anchorTransform = spaceGo.transform.Find(anchorName);
+                    VpsAnchorView anchor;
+                    if (anchorTransform == null)
+                    {
+                        var anchorGo = new GameObject(anchorName);
+                        anchorGo.transform.SetParent(spaceGo.transform, false);
+                        anchor = anchorGo.AddComponent<VpsAnchorView>();
+                    }
+                    else
+                    {
+                        anchor = anchorTransform.GetComponent<VpsAnchorView>();
+                        if (anchor == null)
+                        {
+                            anchor = anchorTransform.gameObject.AddComponent<VpsAnchorView>();
+                        }
+                    }
                     var anchorSo = new SerializedObject(anchor);
                     anchorSo.FindProperty("mapId").intValue = mapId;
                     anchorSo.FindProperty("behaviorType").enumValueIndex = (int)type;
