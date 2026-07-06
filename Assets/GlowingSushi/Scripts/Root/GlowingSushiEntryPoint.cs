@@ -65,7 +65,7 @@ namespace GlowingSushi.Root
             aquarium.Tick(deltaTime);
             surfaceSpots.Tick(deltaTime);
             // VPSスポットの配置/追従更新(成功イベントの翌フレームに処理される)
-            vpsPlacement?.Tick();
+            vpsPlacement?.Tick(deltaTime);
         }
     }
 }

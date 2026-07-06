@@ -172,6 +172,10 @@ namespace GlowingSushi.Domain
         [Tooltip("同じペアの連続衝突を無視する時間(秒)")]
         public float battleClashCooldown = 0.3f;
 
+        [Header("VPS配置")]
+        [Tooltip("スポット配置後、この時間(秒)だけローカライズ補正に追従し、以降は位置を固定する")]
+        public float vpsSettleDuration = 10f;
+
         [Header("発光")]
         [Tooltip("発光パルスの周期(秒)")]
         public float glowPulsePeriod = 2f;

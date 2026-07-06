@@ -20,14 +20,16 @@ namespace GlowingSushi.ViewModel
     {
         readonly VpsLocalizationService localization;
         readonly SurfaceSpotsViewModel surfaceSpots;
+        readonly SushiBehaviorSettings settings;
 
         // マップID → そのマップに属するアンカー(種別+Transform)の一覧
         readonly Dictionary<int, List<(SurfaceBehaviorType type, Transform anchor)>> anchorsByMap = new();
-        // マップID → 配置済みスポットと対応アンカー(追従更新用)
-        readonly Dictionary<int, List<(SurfaceSpotViewModel spot, Transform anchor)>> placedByMap = new();
+        // マップID → 配置時刻と配置済みスポット+対応アンカー(追従更新用)
+        readonly Dictionary<int, (float placedAt, List<(SurfaceSpotViewModel spot, Transform anchor)> spots)> placedByMap = new();
         // 直近のローカライズで成功し、次のTickで配置/更新すべきマップID
         readonly HashSet<int> pendingMaps = new();
         IDisposable subscription;
+        float elapsedTime;
 
         /// <summary>一度でもローカライズに成功したかどうか(UI表示などに使える)</summary>
         public ReadOnlyReactiveProperty<bool> IsLocalized => localization.IsLocalized;
@@ -38,10 +40,14 @@ namespace GlowingSushi.ViewModel
         /// <summary>配置済みスポットの総数(状態HUD用)</summary>
         public int PlacedSpotCount { get; private set; }
 
-        public VpsPlacementViewModel(VpsLocalizationService localization, SurfaceSpotsViewModel surfaceSpots)
+        public VpsPlacementViewModel(
+            VpsLocalizationService localization,
+            SurfaceSpotsViewModel surfaceSpots,
+            SushiBehaviorSettings settings)
         {
             this.localization = localization;
             this.surfaceSpots = surfaceSpots;
+            this.settings = settings;
         }
 
         /// <summary>
@@ -77,18 +83,22 @@ namespace GlowingSushi.ViewModel
 
         /// <summary>
         /// 成功イベントの翌フレームに呼ばれ、スポットの配置(初回)または追従更新(2回目以降)を行う。
-        /// エントリポイントのTickから毎フレーム呼ばれる(pendingが無ければ何もしない)。
+        /// 追従は配置後 vpsSettleDuration 秒で停止し、以降は位置を固定する
+        /// (継続する微小補正の揺れを避けるため。バーストモードの高精度化はこの時間内に完了する)。
+        /// エントリポイントのTickから毎フレーム呼ばれる。
         /// </summary>
-        public void Tick()
+        public void Tick(float deltaTime)
         {
+            elapsedTime += deltaTime;
             if (pendingMaps.Count == 0) return;
 
             foreach (var mapId in pendingMaps)
             {
                 if (placedByMap.TryGetValue(mapId, out var placed))
                 {
-                    // 配置済み: スポットをアンカーの最新姿勢へ追従させる
-                    foreach (var (spot, anchor) in placed)
+                    // 配置済み: 整定時間内ならスポットをアンカーの最新姿勢へ追従させる
+                    if (elapsedTime - placed.placedAt > settings.vpsSettleDuration) continue; // 以降は固定
+                    foreach (var (spot, anchor) in placed.spots)
                     {
                         spot.UpdateSurfacePose(new Pose(anchor.position, anchor.rotation));
                     }
@@ -104,7 +114,7 @@ namespace GlowingSushi.ViewModel
                     newPlaced.Add((spot, anchor));
                     PlacedSpotCount++;
                 }
-                placedByMap.Add(mapId, newPlaced);
+                placedByMap.Add(mapId, (elapsedTime, newPlaced));
             }
             pendingMaps.Clear();
         }
