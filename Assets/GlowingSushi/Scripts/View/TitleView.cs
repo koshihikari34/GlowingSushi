@@ -46,6 +46,16 @@ namespace GlowingSushi.View
         [Tooltip("表示スケール(小さく見せる)")]
         float maguroScale = 0.6f;
 
+        [Header("マグロの発光")]
+        [SerializeField]
+        [Tooltip("タイトルのマグロを点滅発光させる(オフなら発光しない)")]
+        bool glowBlink = false;
+
+        [SerializeField]
+        [Tooltip("点滅発光の色(HDR)")]
+        [ColorUsage(false, true)]
+        Color glowBlinkColor = new(1f, 0.6f, 0.2f);
+
         [Header("開始演出")]
         [SerializeField]
         [Tooltip("ジャンプの初速(m/s)")]
@@ -63,8 +73,12 @@ namespace GlowingSushi.View
         [Tooltip("演出全体の時間(秒)。この時間でマグロが縮んで消える")]
         float startDuration = 0.9f;
 
+        static readonly int EmissionColorId = Shader.PropertyToID("_EmissionColor");
+
         TitleViewModel viewModel;
         Transform maguro;
+        Renderer maguroRenderer;
+        MaterialPropertyBlock propertyBlock;
         Vector3 maguroBasePosition;
         Vector3 maguroBaseScale;
         float elapsedTime;
@@ -80,6 +94,12 @@ namespace GlowingSushi.View
 
         void Start()
         {
+            if (viewModel == null)
+            {
+                Debug.LogError(
+                    "[GlowingSushi] TitleViewModelが注入されていません。" +
+                    "TitleLifetimeScopeの登録内容(TitleViewModel/SceneNavigationService/TitleView)を確認してください");
+            }
             if (titleText != null) titleText.text = titleLabel;
             if (tapButton != null) tapButton.onClick.AddListener(OnTapped);
             SpawnMaguro();
@@ -98,11 +118,26 @@ namespace GlowingSushi.View
             maguroBasePosition = maguro.localPosition;
             maguroBaseScale = maguro.localScale;
 
-            // タイトルでは軌跡パーティクルを使わない(SushiViewはBindしないため発光もしない)
+            // タイトルでは軌跡パーティクルを使わない
             foreach (var particles in maguro.GetComponentsInChildren<ParticleSystem>(true))
             {
                 particles.gameObject.SetActive(false);
             }
+
+            // 発光を消灯する(マテリアルのデフォルトEmissionが光ってしまうため)。
+            // glowBlinkが有効な場合はUpdateIdleで点滅させる
+            maguroRenderer = maguro.GetComponentInChildren<Renderer>();
+            ApplyMaguroGlow(0f);
+        }
+
+        /// <summary>マグロのEmissionをMaterialPropertyBlockで設定する(0で消灯)</summary>
+        void ApplyMaguroGlow(float intensity)
+        {
+            if (maguroRenderer == null) return;
+            propertyBlock ??= new MaterialPropertyBlock();
+            maguroRenderer.GetPropertyBlock(propertyBlock);
+            propertyBlock.SetColor(EmissionColorId, glowBlinkColor * intensity);
+            maguroRenderer.SetPropertyBlock(propertyBlock);
         }
 
         void Update()
@@ -136,6 +171,12 @@ namespace GlowingSushi.View
                 color.a = 0.35f + 0.65f * Mathf.Abs(Mathf.Sin(elapsedTime * 2.5f));
                 tapStartText.color = color;
             }
+
+            // オプション: マグロの点滅発光
+            if (glowBlink)
+            {
+                ApplyMaguroGlow(Mathf.Abs(Mathf.Sin(elapsedTime * 2.5f)) * 1.5f);
+            }
         }
 
         /// <summary>開始演出中: マグロが上に跳ねながら回転して縮み、UI全体がフェードアウトする</summary>
@@ -161,7 +202,15 @@ namespace GlowingSushi.View
             if (t >= startDuration)
             {
                 enabled = false; // 多重遷移の防止
-                viewModel.CompleteIntro(); // メインシーンへ遷移(タイトルシーンごと破棄される)
+                // メインシーンへ遷移(タイトルシーンごと破棄される)
+                if (viewModel != null)
+                {
+                    viewModel.CompleteIntro();
+                }
+                else
+                {
+                    Debug.LogError("[GlowingSushi] TitleViewModel未注入のため遷移できません");
+                }
             }
         }
 
@@ -176,8 +225,9 @@ namespace GlowingSushi.View
             if (titleText != null) titleText.enabled = false;
             if (tapStartText != null) tapStartText.enabled = false;
             if (tapButton != null) tapButton.interactable = false;
+            ApplyMaguroGlow(0f); // 点滅発光中でも演出中は消灯する
 
-            viewModel.Start();
+            viewModel?.Start();
         }
     }
 }
