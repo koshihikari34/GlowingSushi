@@ -113,7 +113,7 @@ namespace GlowingSushi.View
 
             maguro = Instantiate(maguroPrefab, camera.transform).transform;
             maguro.localPosition = maguroLocalPosition;
-            maguro.localRotation = Quaternion.Euler(0f, 200f, 0f); // 少し斜めにして立体感を出す
+            maguro.localRotation = Quaternion.Euler(0f, -75f, 0f); // 少し斜めにして立体感を出す
             maguro.localScale *= maguroScale;
             maguroBasePosition = maguro.localPosition;
             maguroBaseScale = maguro.localScale;
@@ -162,7 +162,7 @@ namespace GlowingSushi.View
                 maguro.localPosition = maguroBasePosition + Vector3.up * bob;
                 // ゆっくり揺れる(浮遊感)
                 maguro.localRotation = Quaternion.Euler(
-                    Mathf.Sin(elapsedTime * 1.3f) * 5f, 200f + Mathf.Sin(elapsedTime * 0.8f) * 10f, 0f);
+                    Mathf.Sin(elapsedTime * 1.3f) * 5f, -75f + Mathf.Sin(elapsedTime * 0.8f) * 10f, 0f);
             }
 
             if (tapStartText != null)
