@@ -53,6 +53,15 @@ namespace GlowingSushi.Service
         public void Initialize()
         {
             if (initialized) return;
+
+            // エディタ等でImmersalSDKごと無効化されている場合は何もしない
+            // (ImmersalSDK.Instanceへアクセスするとエラーログが出るため先に判定する)
+            if (localizer == null || !localizer.gameObject.activeInHierarchy)
+            {
+                sdkStatus.Value = "無効";
+                return;
+            }
+
             initialized = true;
 
             localizer.OnFirstSuccessfulLocalization.AddListener(OnFirstSuccess);
@@ -100,18 +109,23 @@ namespace GlowingSushi.Service
 
         public void Dispose()
         {
-            if (initialized && localizer != null)
+            // 未初期化ならリスナー解除は不要。ImmersalSDK.Instanceは
+            // インスタンス不在時にエラーログを出すため、初期化済みの場合のみ触る
+            if (initialized)
             {
-                localizer.OnFirstSuccessfulLocalization.RemoveListener(OnFirstSuccess);
-                localizer.OnSuccessfulLocalizations.RemoveListener(OnSuccess);
-                localizer.OnLocalizationResult.RemoveListener(OnResult);
-                localizer.OnFailedLocalizations.RemoveListener(OnFailed);
-            }
-            var sdk = ImmersalSDK.Instance;
-            if (initialized && sdk != null)
-            {
-                sdk.OnInitializationComplete.RemoveListener(OnSdkInitialized);
-                sdk.OnUserValidationComplete.RemoveListener(OnUserValidated);
+                if (localizer != null)
+                {
+                    localizer.OnFirstSuccessfulLocalization.RemoveListener(OnFirstSuccess);
+                    localizer.OnSuccessfulLocalizations.RemoveListener(OnSuccess);
+                    localizer.OnLocalizationResult.RemoveListener(OnResult);
+                    localizer.OnFailedLocalizations.RemoveListener(OnFailed);
+                }
+                var sdk = ImmersalSDK.Instance;
+                if (sdk != null)
+                {
+                    sdk.OnInitializationComplete.RemoveListener(OnSdkInitialized);
+                    sdk.OnUserValidationComplete.RemoveListener(OnUserValidated);
+                }
             }
             successfulLocalizations.Dispose();
             isLocalized.Dispose();

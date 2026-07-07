@@ -82,8 +82,16 @@ AR + VPS を活用した iPhone 向けアプリ。光る寿司が魚群のよう
 | Battle | ベイブレードのように高速スピンしながら動き回り、ぶつかると弾性衝突で弾かれ、**火花(HDR発光)**と衝突音が出る | テーブル(148714) |
 
 - 火花・衝突音は寿司本体と違い演出として発光してよい(GlowParticle.matを流用)
-- `PlacementMode`(Aquarium / SurfaceSpotsDemo / Both)で平面検出時に出すコンテンツを切り替えられる(2aの検証は平面上のデモスポット4種で行う)
+- `PlacementMode`(Aquarium / SurfaceSpotsDemo / Both / None)で平面検出時に出すコンテンツを切り替えられる(2aの検証は平面上のデモスポット4種で行う)
 - Phase 2bでは、Immersalローカライズ成功後にVPSアンカーの位置・種別からスポットを構築する(`SurfaceSpotsViewModel.AddSpot`)
+
+### 3.8 タイトルシーン
+- **独立したシーン(`Title.unity`)**として構築し、ビルドの起動シーンにする(Title → Main の順)
+- 濃紺の背景にタイトル文字、その下に**小さなマグロがふわふわ浮遊**、その下で「**タップスタート**」が点滅する
+- 画面タップで: タイトルとタップスタートが消える → **マグロが上に跳ねながら回転**してスケール縮小で消える → 画面全体(CanvasGroup)がフェードアウト → **Mainシーンへ遷移**(遷移は `SceneNavigationService` 経由でViewModelが行う)
+- モード選択は置かない(水族館・VPS表面ふるまいの両方が有効)
+- スキャン誘導などの常設UIは置かない(寿司鑑賞の邪魔になるため)
+- Mainシーン側はタイトルViewが存在しないため、エントリポイントが即時にコンテンツ出現系を開始する(同一シーンにタイトルを置いた場合のゲート機構も残してある)
 
 ## 4. アーキテクチャ設計(MVVM + VContainer + R3)
 
@@ -133,6 +141,7 @@ Assets/GlowingSushi/Scripts/
 - `VpsPlacementViewModel` : `VpsAnchorView` から登録されたアンカーを保持し、対応マップのローカライズ成功の翌フレームにアンカー姿勢へ表面ふるまいスポットを配置。整定時間内は追従更新する
 - `ArPlacementViewModel` : AR平面検出状態を公開し、`PlacementMode` に応じて水族館/デモスポットの出現をトリガーする
 - `StatusViewModel` : 平面検出・VPSローカライズ統計・スポット配置状況を集約して状態HUDへ公開する
+- `TitleViewModel` : タイトル画面の開始状態(`IsStarted`)を公開。エントリポイントがこれを購読してコンテンツ出現をゲートする
 
 ### 4.5 Service 層(VContainer で DI 登録、ViewModel から注入) — `namespace GlowingSushi.Service`
 - `SushiSpawnService` : 群れの初期配置データ(`SushiSpawnData` 群)の生成(ViewModelの実体化はViewModel層の責務)
@@ -140,6 +149,7 @@ Assets/GlowingSushi/Scripts/
 - `ArPlaneDetectionService` : `ARPlaneManager.trackablesChanged` を Observable にラップ(Phase 1では初回検出平面のみ通知)
 - `ICameraPoseService` / `CameraPoseService` : ARカメラ(プレイヤー視点)の位置・回転を公開。接近行動でViewModelが参照する
 - `VpsLocalizationService` : Immersal `Localizer` の UnityEvent(成功マップID配列・初回成功)を R3 の Observable / ReactiveProperty に変換
+- `SceneNavigationService` : シーン遷移(タイトル→Main)をラップ。ViewModelがシーン名を知らずに遷移できるようにする
 
 ### 4.6 View 層(MonoBehaviour、`[Inject]` で ViewModel を受け取り購読のみ行う) — `namespace GlowingSushi.View`
 - `SushiView` : `Position` / `Rotation` を購読して Transform を更新、`GlowIntensity` を購読して `MaterialPropertyBlock` 経由で Emission を更新(色はViewModelの `GlowColor` × 強度)。軌跡ParticleSystemを群れ色にティント。`State` に応じたアニメーション再生は未実装
@@ -148,6 +158,7 @@ Assets/GlowingSushi/Scripts/
 - `SurfaceSpotsView` : `SurfaceSpotsViewModel` のスポット・個体の増減をネスト購読して `SushiView` を生成・破棄する
 - `BattleEffectView` : `BattleClash` を購読し、衝突位置で火花パーティクル(線状スパーク、HDR発光)と衝突音を強度連動で再生する
 - `SushiView` は `IsGlowing=false` の個体に対してEmission消灯+軌跡パーティクル無効化を行う
+- `TitleView` : タイトル画面。マグロの浮遊・タップスタート点滅・タップ後のジャンプ回転演出とフェードアウトを行い、`TitleViewModel.Start()` を呼ぶ
 - `VpsAnchorView` : マップごとの `XRSpace` 配下に置く配置ポイント。マップIDとふるまい種別を持ち、起動時に `VpsPlacementViewModel` へ自己登録する。エディタ配置用のギズモ表示付き
 
 ### 4.7 Root 層(コンポジションルート) — `namespace GlowingSushi.Root`
